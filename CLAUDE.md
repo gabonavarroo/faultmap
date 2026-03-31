@@ -1,0 +1,219 @@
+# CLAUDE.md — faultmap
+
+## Project Overview
+
+`faultmap` is a pip-installable Python library that automatically discovers WHERE an LLM is failing and WHY, using embedding-space clustering + statistical hypothesis testing. It also audits test suite coverage gaps against production traffic.
+
+**Solo project. 1-week MVP.**
+
+---
+
+## Current Implementation State
+
+### Completed (partial Phase 1)
+
+| File | Status |
+|------|--------|
+| `pyproject.toml` | Done |
+| `faultmap/exceptions.py` | Done |
+| `faultmap/models.py` | Done (all dataclasses) |
+| `faultmap/utils.py` | Done |
+| `faultmap/__init__.py` | Done |
+| `faultmap/analyzer.py` | Stub only (empty class) |
+| `faultmap/report.py` | Stub only |
+| `tests/conftest.py` | Partial stub |
+| `tests/test_utils.py` | Done |
+
+### Not yet created
+
+```
+faultmap/
+├── llm.py              ← PLAN-02
+├── embeddings.py       ← PLAN-02
+├── labeling.py         ← PLAN-02
+├── scoring/
+│   ├── __init__.py     ← PLAN-03
+│   ├── base.py         ← PLAN-03
+│   ├── precomputed.py  ← PLAN-03
+│   ├── reference.py    ← PLAN-03
+│   └── entropy.py      ← PLAN-03
+├── slicing/
+│   ├── __init__.py     ← PLAN-04
+│   ├── clustering.py   ← PLAN-04
+│   └── statistics.py   ← PLAN-04
+└── coverage/
+    ├── __init__.py     ← PLAN-05
+    └── detector.py     ← PLAN-05
+
+tests/
+├── test_embeddings.py  ← PLAN-02
+├── test_llm.py         ← PLAN-02
+├── test_labeling.py    ← PLAN-02
+├── test_scoring/       ← PLAN-03
+├── test_slicing/       ← PLAN-04
+├── test_coverage/      ← PLAN-05
+├── test_report.py      ← PLAN-05
+└── test_analyzer.py    ← PLAN-05
+```
+
+---
+
+## Implementation Plan Files
+
+All implementation-ready code lives in segmented plan files in the repo root:
+
+| File | Phase | Key contents |
+|------|-------|-------------|
+| `PLAN.md` | Overview | Architecture, structure, decisions, schedule |
+| `PLAN-01-foundation.md` | Day 1 | `pyproject.toml`, `exceptions.py`, `models.py`, `utils.py` |
+| `PLAN-02-infrastructure.md` | Day 2 | `llm.py`, `embeddings.py`, `labeling.py` |
+| `PLAN-03-scoring.md` | Day 3 | `scoring/` — all three modes |
+| `PLAN-04-slicing.md` | Day 4 | `slicing/` — clustering, statistics, BH correction |
+| `PLAN-05-integration.md` | Day 5 | `coverage/`, `report.py`, `analyzer.py` |
+| `PLAN-06-testing.md` | Day 6 | `conftest.py`, test strategy, e2e scripts |
+| `PLAN-07-polish.md` | Days 6-7 | README, examples, packaging, verification |
+
+**Always read the relevant PLAN file before implementing any module.**
+
+---
+
+## Architecture
+
+```
+User API (sync)
+    └── SliceAnalyzer
+         ├── analyze() ──→ Score → Embed → Cluster → Test → Correct → Name → Report
+         └── audit_coverage() ──→ Embed → NN Distance → Cluster Gaps → Name → Report
+
+Internal (async)
+    ├── llm.py          ← litellm wrapper (rate-limited async)
+    ├── embeddings.py   ← Local (sentence-transformers) or API (litellm)
+    ├── scoring/        ← 3 modes: precomputed, reference, entropy
+    ├── slicing/        ← clustering + statistical tests + BH correction
+    ├── coverage/       ← NN-based gap detection
+    ├── labeling.py     ← shared LLM cluster naming
+    └── report.py       ← plain text + optional rich formatting
+```
+
+### Scoring Modes
+
+- **Mode 1** (precomputed): user passes `scores=` list — pure passthrough
+- **Mode 2** (reference-based): user passes `references=` list — cosine sim scoring
+- **Mode 3** (entropy/autonomous): neither passed — semantic entropy + self-consistency via LLM sampling
+
+Mode detection in `analyzer.py`:
+- `scores` provided → Mode 1
+- `references` provided → Mode 2
+- neither → Mode 3
+- both → Mode 1 wins, log warning
+
+---
+
+## Key Technical Decisions
+
+### Dependencies
+
+- **litellm** — unified LLM provider (100+ models). No custom provider abstraction.
+- **scikit-learn>=1.3** — HDBSCAN is built-in from 1.3+. Do NOT use the standalone `hdbscan` package.
+- **No scipy, no statsmodels** — chi-squared via `math.erfc`, Fisher exact via `math.lgamma`, BH in ~20 lines.
+- **No pandas** — lists + numpy only. Users can call `.to_dict()` and convert themselves.
+- **sentence-transformers** — optional `[local]` extra. Raise `EmbeddingError` with install instructions if missing.
+- **rich** — optional `[rich]` extra. Fall back to plain text gracefully.
+- **nest-asyncio** — Jupyter compatibility for sync→async bridge.
+
+### Clustering
+
+- **Default**: HDBSCAN (auto-discovers cluster count)
+- **Alternative**: agglomerative with silhouette-based k-selection over `[5, 10, 15, 20, 25, 30]`
+- **Always L2-normalize** before clustering: `||a-b||² = 2 - 2·cos(a,b)` for unit vectors → euclidean ≈ cosine distance, enables Ward linkage
+
+### Statistical Testing
+
+- **One-sided tests only** — only flag clusters that fail MORE than baseline
+- **Decision rule**: expected cell count < 5 → Fisher exact, else chi-squared with Yates correction
+- **Chi-squared p-value**: `erfc(sqrt(chi2/2))` (exact for df=1, stdlib only)
+- **Fisher exact**: computed via `math.lgamma` to avoid overflow
+- **Multiple comparison correction**: Benjamini-Hochberg FDR (not Bonferroni — too conservative)
+
+### Embeddings
+
+- Embed **prompts**, not responses — we want slices of the INPUT space
+- Auto-detection in `get_embedder()`: known local prefixes (`all-MiniLM`, `all-mpnet`, `paraphrase-`) → `LocalEmbedder`; otherwise → `APIEmbedder`
+
+### Semantic Entropy (Mode 3)
+
+1. Sample `n_samples` responses per prompt at `temperature=1.0`
+2. Embed all samples + original
+3. Greedy single-pass clustering within each prompt's samples (threshold=`consistency_threshold`)
+4. Shannon entropy of cluster distribution → normalize by `log(n_samples)`
+5. Self-consistency = fraction of samples cosine-similar to original (>= `consistency_threshold`)
+6. `score = 0.5 * (1 - H_norm) + 0.5 * consistency`
+
+### Coverage Auditing
+
+1. L2-normalize both sets
+2. `NearestNeighbors(k=1)` fit on test, query with production
+3. Auto-threshold: `mean(distances) + 1.5 * std(distances)` if not specified
+4. Cluster uncovered production prompts → gap clusters
+5. Name gaps via LLM
+
+---
+
+## Code Style
+
+- Python 3.10+ (`match`, `|` union types, `from __future__ import annotations`)
+- `frozen=True` dataclasses for all public models
+- Async internally, sync public API via `run_sync()` in `utils.py`
+- `logging.getLogger("faultmap")` for all internal logging
+- Line length: 99 (ruff)
+- Imports: `from __future__ import annotations` at top of every file
+
+---
+
+## Running Tests
+
+```bash
+# Install with all deps
+pip install -e ".[all]"
+
+# Full test suite
+pytest tests/ -v --cov=faultmap --cov-report=term-missing
+
+# Quick smoke test
+pytest tests/test_utils.py -v
+
+# Single module
+pytest tests/test_slicing/test_statistics.py -v
+```
+
+**No real API calls in unit tests.** Use `MockEmbedder` and mock `litellm.acompletion` everywhere.
+
+---
+
+## Public API Contract
+
+The public API is frozen and must not change:
+
+```python
+from faultmap import SliceAnalyzer
+
+analyzer = SliceAnalyzer(
+    model="gpt-4o-mini",
+    embedding_model="all-MiniLM-L6-v2",
+    significance_level=0.05,
+    min_slice_size=10,
+    failure_threshold=0.5,
+    n_samples=8,
+    clustering_method="hdbscan",
+    max_concurrent_requests=50,
+    temperature=1.0,
+)
+
+report = analyzer.analyze(prompts, responses, scores=scores)      # Mode 1
+report = analyzer.analyze(prompts, responses, references=refs)   # Mode 2
+report = analyzer.analyze(prompts, responses)                     # Mode 3
+
+coverage = analyzer.audit_coverage(test_prompts, production_prompts)
+```
+
+`print(report)` must produce readable output. `report.to_dict()` must return JSON-serializable dict.
