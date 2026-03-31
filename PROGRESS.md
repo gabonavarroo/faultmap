@@ -32,24 +32,24 @@ Track which files are done, stubbed, or not started. Update this as you go.
 
 ## Phase 3 — Scoring (Day 3)
 
-- [ ] `faultmap/scoring/__init__.py`
-- [ ] `faultmap/scoring/base.py`
-- [ ] `faultmap/scoring/precomputed.py`
-- [ ] `faultmap/scoring/reference.py`
-- [ ] `faultmap/scoring/entropy.py`
-- [ ] `tests/test_scoring/__init__.py`
-- [ ] `tests/test_scoring/test_precomputed.py`
-- [ ] `tests/test_scoring/test_reference.py`
-- [ ] `tests/test_scoring/test_entropy.py`
+- [x] `faultmap/scoring/__init__.py`
+- [x] `faultmap/scoring/base.py`
+- [x] `faultmap/scoring/precomputed.py`
+- [x] `faultmap/scoring/reference.py`
+- [x] `faultmap/scoring/entropy.py`
+- [x] `tests/test_scoring/__init__.py`
+- [x] `tests/test_scoring/test_precomputed.py`
+- [x] `tests/test_scoring/test_reference.py`
+- [x] `tests/test_scoring/test_entropy.py`
 
 ## Phase 4 — Slicing (Day 4)
 
-- [ ] `faultmap/slicing/__init__.py`
-- [ ] `faultmap/slicing/clustering.py`
-- [ ] `faultmap/slicing/statistics.py`
-- [ ] `tests/test_slicing/__init__.py`
-- [ ] `tests/test_slicing/test_clustering.py`
-- [ ] `tests/test_slicing/test_statistics.py`
+- [x] `faultmap/slicing/__init__.py`
+- [x] `faultmap/slicing/clustering.py`
+- [x] `faultmap/slicing/statistics.py`
+- [x] `tests/test_slicing/__init__.py`
+- [x] `tests/test_slicing/test_clustering.py`
+- [x] `tests/test_slicing/test_statistics.py`
 
 ## Phase 5 — Integration (Day 5)
 

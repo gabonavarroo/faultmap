@@ -10,7 +10,7 @@
 
 ## Current Implementation State
 
-### Completed (partial Phase 1)
+### Completed — Phases 1–4
 
 | File | Status |
 |------|--------|
@@ -19,42 +19,44 @@
 | `faultmap/models.py` | Done (all dataclasses) |
 | `faultmap/utils.py` | Done |
 | `faultmap/__init__.py` | Done |
+| `faultmap/llm.py` | Done |
+| `faultmap/embeddings.py` | Done |
+| `faultmap/labeling.py` | Done |
+| `faultmap/scoring/__init__.py` | Done |
+| `faultmap/scoring/base.py` | Done |
+| `faultmap/scoring/precomputed.py` | Done |
+| `faultmap/scoring/reference.py` | Done |
+| `faultmap/scoring/entropy.py` | Done |
+| `faultmap/slicing/__init__.py` | Done |
+| `faultmap/slicing/clustering.py` | Done |
+| `faultmap/slicing/statistics.py` | Done |
 | `faultmap/analyzer.py` | Stub only (empty class) |
 | `faultmap/report.py` | Stub only |
 | `tests/conftest.py` | Partial stub |
 | `tests/test_utils.py` | Done |
+| `tests/test_llm.py` | Done |
+| `tests/test_embeddings.py` | Done |
+| `tests/test_labeling.py` | Done |
+| `tests/test_scoring/` | Done (15 tests) |
+| `tests/test_slicing/` | Done (16 tests) |
 
 ### Not yet created
 
 ```
 faultmap/
-├── llm.py              ← PLAN-02
-├── embeddings.py       ← PLAN-02
-├── labeling.py         ← PLAN-02
-├── scoring/
-│   ├── __init__.py     ← PLAN-03
-│   ├── base.py         ← PLAN-03
-│   ├── precomputed.py  ← PLAN-03
-│   ├── reference.py    ← PLAN-03
-│   └── entropy.py      ← PLAN-03
-├── slicing/
-│   ├── __init__.py     ← PLAN-04
-│   ├── clustering.py   ← PLAN-04
-│   └── statistics.py   ← PLAN-04
 └── coverage/
     ├── __init__.py     ← PLAN-05
     └── detector.py     ← PLAN-05
 
 tests/
-├── test_embeddings.py  ← PLAN-02
-├── test_llm.py         ← PLAN-02
-├── test_labeling.py    ← PLAN-02
-├── test_scoring/       ← PLAN-03
-├── test_slicing/       ← PLAN-04
 ├── test_coverage/      ← PLAN-05
 ├── test_report.py      ← PLAN-05
 └── test_analyzer.py    ← PLAN-05
 ```
+
+### Implementation note — `test_cluster_failure_rate.__test__ = False`
+
+`faultmap/slicing/statistics.py` defines a public function named `test_cluster_failure_rate`. Since pytest collects any module-level name starting with `test_`, we annotate it with `__test__ = False` immediately after definition. This is the standard pytest-supported way to suppress collection of non-test callables.
 
 ---
 
@@ -184,6 +186,12 @@ pytest tests/test_utils.py -v
 
 # Single module
 pytest tests/test_slicing/test_statistics.py -v
+```
+
+Make sure to activate the venv when running tests with
+
+```bash
+source venv/bin/activate
 ```
 
 **No real API calls in unit tests.** Use `MockEmbedder` and mock `litellm.acompletion` everywhere.
