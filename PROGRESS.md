@@ -16,10 +16,7 @@ Track which files are done, stubbed, or not started. Update this as you go.
 - [x] `faultmap/models.py`
 - [x] `faultmap/utils.py`
 - [x] `faultmap/__init__.py`
-- [~] `faultmap/analyzer.py` — empty class stub
-- [~] `faultmap/report.py` — stub (calls summary())
 - [x] `tests/test_utils.py`
-- [~] `tests/conftest.py` — minimal stub, needs full fixtures from PLAN-06
 
 ## Phase 2 — Infrastructure (Day 2)
 
@@ -53,31 +50,42 @@ Track which files are done, stubbed, or not started. Update this as you go.
 
 ## Phase 5 — Integration (Day 5)
 
-- [ ] `faultmap/coverage/__init__.py`
-- [ ] `faultmap/coverage/detector.py`
-- [~] `faultmap/report.py` — needs full implementation (rich + plain)
-- [~] `faultmap/analyzer.py` — needs full pipeline
-- [ ] `tests/test_coverage/__init__.py`
-- [ ] `tests/test_coverage/test_detector.py`
-- [ ] `tests/test_report.py`
-- [ ] `tests/test_analyzer.py`
+- [x] `faultmap/coverage/__init__.py`
+- [x] `faultmap/coverage/detector.py`
+- [x] `faultmap/report.py` — rich + plain text dual formatting
+- [x] `faultmap/analyzer.py` — full `SliceAnalyzer` (analyze + audit_coverage)
+- [x] `tests/test_coverage/__init__.py`
+- [x] `tests/test_coverage/test_detector.py`
+- [x] `tests/test_report.py`
+- [x] `tests/test_analyzer.py`
 
 ## Phase 6 — Testing (Day 6)
 
-- [~] `tests/conftest.py` — needs MockEmbedder, make_clustered_data, make_coverage_data
+- [x] `tests/conftest.py` — `MockEmbedder`, `make_clustered_data`, `make_coverage_data`, fixtures
+- [x] `tests/test_analyzer.py` — expanded: Mode 2, Mode 3, full pipeline, `_audit_coverage_async`, HDBSCAN noise (29 tests, 100% coverage)
+- [x] `tests/test_report.py` — expanded: plain text, rich with-gaps, ImportError fallback (15 tests, 100% coverage)
 - [ ] Manual e2e test: Mode 1 with real gpt-4o-mini
 - [ ] Manual e2e test: Coverage auditing with real gpt-4o-mini
 
+**Current test count: 115 passing. analyzer.py: 100%, report.py: 100%.**
+
+### Note — `tests/__init__.py` removed
+
+Adding `tests/__init__.py` causes pytest to import `conftest.py` both as a conftest
+and as a package module, triggering numpy's "cannot load module more than once"
+error. The file was removed; subdirectory `__init__.py` files (test_scoring, etc.)
+are fine and remain.
+
 ## Phase 7 — Polish (Days 6-7)
 
-- [ ] `README.md` — rewrite from placeholder
-- [ ] `examples/example_mode1_custom_scores.py`
-- [ ] `examples/example_mode2_reference_based.py`
-- [ ] `examples/example_mode3_reference_free.py`
-- [ ] `examples/example_coverage_audit.py`
-- [ ] Docstrings on all public API
+- [x] `README.md` — rewritten with full docs, API reference, scoring modes, examples
+- [x] `examples/example_mode1_custom_scores.py`
+- [x] `examples/example_mode2_reference_based.py`
+- [x] `examples/example_mode3_reference_free.py`
+- [x] `examples/example_coverage_audit.py`
+- [x] Docstrings on all public API (`SliceAnalyzer`, `AnalysisReport`, `CoverageReport`, `FailureSlice`, `CoverageGap`, `ScoringResult`)
 - [ ] `pip install faultmap` clean install verified
-- [ ] `pytest tests/ -v` passes 100%
+- [x] `pytest tests/ -v` passes 100%
 
 ---
 

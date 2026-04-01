@@ -10,7 +10,7 @@
 
 ## Current Implementation State
 
-### Completed — Phases 1–4
+### Completed — Phases 1–7
 
 | File | Status |
 |------|--------|
@@ -30,33 +30,53 @@
 | `faultmap/slicing/__init__.py` | Done |
 | `faultmap/slicing/clustering.py` | Done |
 | `faultmap/slicing/statistics.py` | Done |
-| `faultmap/analyzer.py` | Stub only (empty class) |
-| `faultmap/report.py` | Stub only |
-| `tests/conftest.py` | Partial stub |
+| `faultmap/coverage/__init__.py` | Done |
+| `faultmap/coverage/detector.py` | Done |
+| `faultmap/report.py` | Done (rich + plain text) |
+| `faultmap/analyzer.py` | Done (full SliceAnalyzer) |
+| `tests/__init__.py` | Done |
+| `tests/conftest.py` | Done (`MockEmbedder`, `make_clustered_data`, `make_coverage_data`) |
 | `tests/test_utils.py` | Done |
 | `tests/test_llm.py` | Done |
 | `tests/test_embeddings.py` | Done |
 | `tests/test_labeling.py` | Done |
 | `tests/test_scoring/` | Done (15 tests) |
 | `tests/test_slicing/` | Done (16 tests) |
+| `tests/test_coverage/test_detector.py` | Done (6 tests) |
+| `tests/test_report.py` | Done (15 tests) |
+| `tests/test_analyzer.py` | Done (29 tests) |
+| `README.md` | Done (full API docs, scoring modes, examples) |
+| `examples/example_mode1_custom_scores.py` | Done |
+| `examples/example_mode2_reference_based.py` | Done |
+| `examples/example_mode3_reference_free.py` | Done |
+| `examples/example_coverage_audit.py` | Done |
 
-### Not yet created
+**Total: 115 tests, all passing.**
+**Coverage: `analyzer.py` 100%, `report.py` 100%.**
+
+### Remaining
 
 ```
-faultmap/
-└── coverage/
-    ├── __init__.py     ← PLAN-05
-    └── detector.py     ← PLAN-05
-
-tests/
-├── test_coverage/      ← PLAN-05
-├── test_report.py      ← PLAN-05
-└── test_analyzer.py    ← PLAN-05
+Phase 7 (PLAN-07): pip install clean install verification (manual step).
 ```
+
+### conftest.py shared fixtures
+
+Three categories of reusable fixtures now available to all tests:
+
+- **`MockEmbedder`** — deterministic hash-based embedder, `DIM=64`, no model downloads
+- **`mock_llm_client`** — `AsyncMock` with canned `"Name: Test Cluster\nDescription: ..."` response
+- **`make_clustered_data(n_clusters, n_per_cluster, ...)`** — well-separated cluster embeddings with controllable failure scores; use `failure_clusters=[0]` to inject a known failure pattern
+- **`make_coverage_data(n_test, n_prod_covered, n_prod_gap, ...)`** — test + production embeddings in region A (covered) and region B (gap)
+- Fixtures `clustered_data`, `small_clustered_data`, `coverage_data` expose the generators as ready-to-use pytest fixtures
 
 ### Implementation note — `test_cluster_failure_rate.__test__ = False`
 
 `faultmap/slicing/statistics.py` defines a public function named `test_cluster_failure_rate`. Since pytest collects any module-level name starting with `test_`, we annotate it with `__test__ = False` immediately after definition. This is the standard pytest-supported way to suppress collection of non-test callables.
+
+### Implementation note — coverage gap auto-threshold and float32
+
+`detect_coverage_gaps` uses `mean + 1.5*std` as the auto-threshold. For bimodal distance distributions (clearly separated covered vs. uncovered regions), this can exceed 2.0 (max euclidean distance between unit vectors), detecting nothing. Tests that exercise gap detection use an explicit `distance_threshold=1.0` to avoid this. Similarly, float32 normalization introduces rounding errors that produce tiny non-zero distances; tests for the "all covered" case use float64 arrays.
 
 ---
 
