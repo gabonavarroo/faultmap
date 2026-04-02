@@ -19,7 +19,7 @@ dataset size. Use a small n_samples (4-8) for cost efficiency, or run on a sampl
 of your data first.
 
 Requirements:
-    pip install faultmap[local,rich]
+    pip install faultmap[rich]
     export OPENAI_API_KEY=...
 """
 
@@ -102,7 +102,7 @@ responses = [
 
 analyzer = SliceAnalyzer(
     model="gpt-4o-mini",
-    embedding_model="all-MiniLM-L6-v2",
+    embedding_model="text-embedding-3-small",
     n_samples=6,           # sample 6 additional responses per prompt
     temperature=1.0,       # high temperature for diverse sampling
     consistency_threshold=0.8,  # cosine similarity threshold for self-consistency

@@ -1,4 +1,5 @@
 from __future__ import annotations
+
 import logging
 from dataclasses import dataclass
 
@@ -126,10 +127,10 @@ def _fisher_exact_one_sided(a: int, b: int, c: int, d: int) -> float:
 
     Uses log-gamma to avoid factorial overflow on large tables.
     """
-    from math import lgamma, exp
+    from math import exp, lgamma
 
-    N = a + b + c + d
-    K = a + c       # total failures
+    total_size = a + b + c + d
+    total_failures = a + c
     n = a + b       # cluster size
 
     def log_choose(nn: int, kk: int) -> float:
@@ -137,13 +138,17 @@ def _fisher_exact_one_sided(a: int, b: int, c: int, d: int) -> float:
             return float('-inf')
         return lgamma(nn + 1) - lgamma(kk + 1) - lgamma(nn - kk + 1)
 
-    log_denom = log_choose(N, n)
+    log_denom = log_choose(total_size, n)
 
-    # Sum P(X = x) for x = a to min(n, K)
-    max_x = min(n, K)
+    # Sum P(X = x) for x = a to min(n, total_failures)
+    max_x = min(n, total_failures)
     p_value = 0.0
     for x in range(a, max_x + 1):
-        log_p = log_choose(K, x) + log_choose(N - K, n - x) - log_denom
+        log_p = (
+            log_choose(total_failures, x)
+            + log_choose(total_size - total_failures, n - x)
+            - log_denom
+        )
         p_value += exp(log_p)
 
     return min(p_value, 1.0)

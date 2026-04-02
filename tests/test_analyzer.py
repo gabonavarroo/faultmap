@@ -1,11 +1,11 @@
+from unittest.mock import AsyncMock, MagicMock, patch
+
 import numpy as np
 import pytest
-from unittest.mock import AsyncMock, MagicMock, patch
 
 from faultmap.analyzer import SliceAnalyzer
 from faultmap.exceptions import ConfigurationError
 from faultmap.models import ScoringResult
-
 
 # ── Helpers ───────────────────────────────────────────────
 
@@ -78,6 +78,15 @@ def _make_coverage_embeddings(n_test=50, n_covered=30, n_gap=20, dim=64, seed=7)
 
 
 class TestSliceAnalyzerConfig:
+    def test_default_embedding_model_matches_core_install_story(self):
+        with patch("faultmap.analyzer.get_embedder") as mock_get_embedder, patch(
+            "faultmap.analyzer.AsyncLLMClient"
+        ):
+            analyzer = SliceAnalyzer()
+
+        assert analyzer.embedding_model == "text-embedding-3-small"
+        mock_get_embedder.assert_called_once_with("text-embedding-3-small")
+
     def test_invalid_clustering_method(self):
         with pytest.raises(ConfigurationError):
             SliceAnalyzer(clustering_method="invalid")
@@ -93,6 +102,18 @@ class TestSliceAnalyzerConfig:
     def test_invalid_failure_threshold(self):
         with pytest.raises(ConfigurationError):
             SliceAnalyzer(failure_threshold=1.5)
+
+    def test_invalid_min_slice_size(self):
+        with pytest.raises(ConfigurationError):
+            SliceAnalyzer(min_slice_size=0)
+
+    def test_invalid_max_concurrent_requests(self):
+        with pytest.raises(ConfigurationError):
+            SliceAnalyzer(max_concurrent_requests=0)
+
+    def test_invalid_consistency_threshold(self):
+        with pytest.raises(ConfigurationError):
+            SliceAnalyzer(consistency_threshold=1.5)
 
     def test_init_stores_params(self):
         """Lines 55-70: __init__ attribute assignments + embedder/LLM construction."""
@@ -224,6 +245,27 @@ class TestAnalyzeMode3:
         assert call_kwargs["n_samples"] == 8
         assert call_kwargs["temperature"] == 1.0
         assert call_kwargs["consistency_threshold"] == 0.8
+
+    def test_entropy_scoring_metadata_contract_preserved(self):
+        analyzer = _make_analyzer(_make_mock_embedder())
+        mock_scorer = AsyncMock()
+        mock_scorer.score.return_value = ScoringResult(
+            scores=[0.8, 0.9],
+            mode="entropy",
+            metadata={
+                "n_samples": 8,
+                "temperature": 1.0,
+                "semantic_entropy": [0.2, 0.1],
+                "self_consistency": [0.8, 0.9],
+                "normalized_entropy": [0.2, 0.1],
+                "scores": [0.8, 0.9],
+            },
+        )
+
+        with patch("faultmap.scoring.EntropyScorer", return_value=mock_scorer):
+            report = analyzer.analyze(["p1", "p2"], ["r1", "r2"])
+
+        assert report.metadata["scoring_metadata"]["scores"] == [0.8, 0.9]
 
 
 # ── Full pipeline ─────────────────────────────────────────
@@ -375,6 +417,22 @@ class TestAuditCoverage:
         with pytest.raises(ConfigurationError):
             analyzer.audit_coverage(["test-prompt"], [])
 
+    def test_invalid_min_gap_size_raises(self):
+        analyzer = _make_analyzer(_make_mock_embedder())
+        with pytest.raises(ConfigurationError, match="min_gap_size must be > 0"):
+            analyzer.audit_coverage(["test-prompt"], ["prod-prompt"], min_gap_size=0)
+
+    def test_invalid_distance_threshold_raises(self):
+        analyzer = _make_analyzer(_make_mock_embedder())
+        with pytest.raises(
+            ConfigurationError, match="distance_threshold must be >= 0"
+        ):
+            analyzer.audit_coverage(
+                ["test-prompt"],
+                ["prod-prompt"],
+                distance_threshold=-1.0,
+            )
+
     def test_no_gaps_when_all_covered(self):
         """
         Lines 349-358: early return when unique_gaps is empty.
@@ -432,6 +490,56 @@ class TestAuditCoverage:
         assert gap.size >= 5
         assert gap.mean_distance > 0
         assert len(gap.representative_prompts) > 0
+        assert report.metadata["num_uncovered_total"] >= gap.size
+
+    def test_small_uncovered_prompts_reduce_coverage_without_named_gap(self):
+        test_embs, prod_embs = _make_coverage_embeddings(
+            n_test=50, n_covered=30, n_gap=4
+        )
+        n_test, n_prod = len(test_embs), len(prod_embs)
+
+        embedder = MagicMock()
+        embedder.dimension = 64
+        embedder.embed.side_effect = [test_embs, prod_embs]
+
+        analyzer = _make_analyzer(embedder)
+        report = analyzer.audit_coverage(
+            [f"t-{i}" for i in range(n_test)],
+            [f"p-{i}" for i in range(n_prod)],
+            distance_threshold=1.0,
+            min_gap_size=5,
+        )
+
+        assert report.num_gaps == 0
+        assert report.overall_coverage_score == pytest.approx(30 / 34)
+        assert report.metadata["num_uncovered_total"] == 4
+        assert report.metadata["num_unclustered_uncovered"] == 4
+        assert report.metadata["unclustered_prompt_indices"] == [30, 31, 32, 33]
+
+    def test_unclustered_noise_prompts_remain_uncovered(self):
+        test_embs, prod_embs = _make_coverage_embeddings(
+            n_test=50, n_covered=30, n_gap=20
+        )
+        n_test, n_prod = len(test_embs), len(prod_embs)
+
+        embedder = MagicMock()
+        embedder.dimension = 64
+        embedder.embed.side_effect = [test_embs, prod_embs]
+
+        analyzer = _make_analyzer(embedder)
+        with patch("faultmap.coverage.detector.cluster_embeddings") as mock_cluster:
+            mock_cluster.return_value = np.array([-1] * 20, dtype=int)
+            report = analyzer.audit_coverage(
+                [f"t-{i}" for i in range(n_test)],
+                [f"p-{i}" for i in range(n_prod)],
+                distance_threshold=1.0,
+                min_gap_size=5,
+            )
+
+        assert report.num_gaps == 0
+        assert report.overall_coverage_score == pytest.approx(30 / 50)
+        assert report.metadata["num_uncovered_total"] == 20
+        assert report.metadata["num_unclustered_uncovered"] == 20
 
     def test_coverage_report_to_dict(self):
         test_embs, prod_embs = _make_coverage_embeddings()
@@ -450,6 +558,7 @@ class TestAuditCoverage:
         assert isinstance(d, dict)
         assert "gaps" in d
         assert "overall_coverage_score" in d
+        assert "metadata" in d
 
 
 # ── Report serialization ──────────────────────────────────

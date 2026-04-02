@@ -1,12 +1,12 @@
 from __future__ import annotations
 
+from unittest.mock import AsyncMock
+
 import numpy as np
 import pytest
-from unittest.mock import AsyncMock, MagicMock
 
 from faultmap.embeddings import Embedder
 from faultmap.llm import AsyncLLMClient
-
 
 # ── Mock Embedder ──────────────────────────────────────────
 
@@ -94,7 +94,6 @@ def make_clustered_data(
         failure_clusters = [0]
 
     rng = np.random.default_rng(seed)
-    n_total = n_clusters * n_per_cluster
 
     # Generate cluster centers (well-separated on unit sphere)
     centers = rng.standard_normal((n_clusters, dim))

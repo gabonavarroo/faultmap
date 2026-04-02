@@ -1,7 +1,11 @@
-import pytest
 from unittest.mock import AsyncMock
+
+import pytest
+
 from faultmap.labeling import (
-    label_cluster, label_clusters, _parse_label_response, ClusterLabel,
+    _parse_label_response,
+    label_cluster,
+    label_clusters,
 )
 
 

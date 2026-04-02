@@ -1,4 +1,5 @@
 import pytest
+
 from faultmap.scoring.precomputed import PrecomputedScorer
 
 

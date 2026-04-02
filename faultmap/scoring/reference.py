@@ -1,5 +1,7 @@
 from __future__ import annotations
+
 import numpy as np
+
 from ..embeddings import Embedder
 from ..models import ScoringResult
 from ..utils import cosine_similarity_pairs

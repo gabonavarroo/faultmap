@@ -1,12 +1,13 @@
 import numpy as np
 import pytest
+
+from faultmap.exceptions import ConfigurationError
 from faultmap.utils import (
+    batch_items,
     cosine_similarity_matrix,
     cosine_similarity_pairs,
     validate_inputs,
-    batch_items,
 )
-from faultmap.exceptions import ConfigurationError
 
 
 class TestCosineSimilarityMatrix:

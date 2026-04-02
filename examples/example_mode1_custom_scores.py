@@ -6,7 +6,7 @@ human reviewers, LLM-as-judge, etc.). faultmap discovers which input slices
 have statistically elevated failure rates.
 
 Requirements:
-    pip install faultmap[local,rich]
+    pip install faultmap[rich]
     export OPENAI_API_KEY=...
 """
 
@@ -40,7 +40,7 @@ scores = [0.2] * 30 + [0.85] * 30 + [0.90] * 30
 
 analyzer = SliceAnalyzer(
     model="gpt-4o-mini",
-    embedding_model="all-MiniLM-L6-v2",  # local model, requires faultmap[local]
+    embedding_model="text-embedding-3-small",
     min_slice_size=10,
     failure_threshold=0.5,  # score < 0.5 = failure
     significance_level=0.05,
