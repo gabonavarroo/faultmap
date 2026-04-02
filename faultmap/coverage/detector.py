@@ -1,13 +1,16 @@
 from __future__ import annotations
+
 import logging
 
 import numpy as np
 from sklearn.neighbors import NearestNeighbors
 
 from ..exceptions import ClusteringError, ConfigurationError
-from ..slicing.clustering import cluster_embeddings, get_representative_prompts
+from ..slicing.clustering import cluster_embeddings
 
 logger = logging.getLogger(__name__)
+
+UNCOVERED_UNCLUSTERED = -2
 
 
 def detect_coverage_gaps(
@@ -39,7 +42,10 @@ def detect_coverage_gaps(
         clustering_method: "hdbscan" or "agglomerative"
 
     Returns:
-        gap_labels: (n_prod,) -1=covered, >=0=gap cluster id
+        gap_labels: (n_prod,) label array with:
+            - ``-1`` for covered prompts
+            - ``-2`` for uncovered prompts that did not form a reportable cluster
+            - ``>= 0`` for named gap cluster ids
         nn_distances: (n_prod,) nearest-neighbor distances
         distance_threshold: the threshold that was used
 
@@ -57,6 +63,10 @@ def detect_coverage_gaps(
             np.array([], dtype=float),
             distance_threshold or 0.0,
         )
+    if min_gap_size <= 0:
+        raise ConfigurationError("min_gap_size must be > 0")
+    if distance_threshold is not None and distance_threshold < 0:
+        raise ConfigurationError("distance_threshold must be >= 0")
 
     # L2-normalize
     test_norms = np.linalg.norm(test_embeddings, axis=1, keepdims=True) + 1e-10
@@ -76,14 +86,19 @@ def detect_coverage_gaps(
         logger.info(f"Auto-computed distance threshold: {distance_threshold:.4f}")
 
     # Find uncovered prompts
-    uncovered_mask = distances > distance_threshold
+    tolerance = max(1e-8, np.finfo(distances.dtype).eps * 10)
+    uncovered_mask = distances > (distance_threshold + tolerance)
     n_uncovered = int(np.sum(uncovered_mask))
     logger.info(f"{n_uncovered}/{len(distances)} production prompts are uncovered")
 
     # Initialize all as -1 (covered)
     gap_labels = np.full(len(distances), -1, dtype=int)
 
+    if n_uncovered == 0:
+        return gap_labels, distances, distance_threshold
+
     if n_uncovered < min_gap_size:
+        gap_labels[uncovered_mask] = UNCOVERED_UNCLUSTERED
         return gap_labels, distances, distance_threshold
 
     # Cluster the uncovered embeddings
@@ -104,6 +119,9 @@ def detect_coverage_gaps(
     # Map back to full array
     uncovered_indices = np.where(uncovered_mask)[0]
     for local_idx, global_idx in enumerate(uncovered_indices):
-        gap_labels[global_idx] = uncovered_cluster_labels[local_idx]
+        local_label = uncovered_cluster_labels[local_idx]
+        gap_labels[global_idx] = (
+            UNCOVERED_UNCLUSTERED if local_label == -1 else local_label
+        )
 
     return gap_labels, distances, distance_threshold

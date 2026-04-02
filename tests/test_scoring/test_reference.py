@@ -1,6 +1,8 @@
+from unittest.mock import MagicMock
+
 import numpy as np
 import pytest
-from unittest.mock import MagicMock
+
 from faultmap.scoring.reference import ReferenceScorer
 
 

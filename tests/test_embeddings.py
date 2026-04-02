@@ -1,7 +1,9 @@
+from unittest.mock import MagicMock, patch
+
 import numpy as np
 import pytest
-from unittest.mock import patch, MagicMock
-from faultmap.embeddings import LocalEmbedder, APIEmbedder, get_embedder
+
+from faultmap.embeddings import APIEmbedder, LocalEmbedder, get_embedder
 from faultmap.exceptions import EmbeddingError
 
 

@@ -1,16 +1,13 @@
 import sys
 from unittest.mock import patch
 
-import pytest
-
 from faultmap.models import AnalysisReport, CoverageGap, CoverageReport, FailureSlice
 from faultmap.report import (
-    format_analysis_report,
-    format_coverage_report,
     _format_analysis_plain,
     _format_coverage_plain,
+    format_analysis_report,
+    format_coverage_report,
 )
-
 
 # ── Fixtures ──────────────────────────────────────────────
 
@@ -49,7 +46,7 @@ def _make_failure_slice():
     )
 
 
-def _make_coverage_report(gaps=None):
+def _make_coverage_report(gaps=None, metadata=None):
     return CoverageReport(
         gaps=gaps or [],
         num_test_prompts=50,
@@ -58,6 +55,7 @@ def _make_coverage_report(gaps=None):
         overall_coverage_score=1.0 if not gaps else 0.85,
         distance_threshold=0.5,
         embedding_model="test-embed",
+        metadata=metadata or {},
     )
 
 
@@ -106,6 +104,13 @@ class TestFormatCoverageReportRich:
         report = _make_coverage_report()
         text = format_coverage_report(report)
         assert "No significant coverage gaps" in text
+
+    def test_no_named_gaps_but_unclustered_prompts_are_reported(self):
+        report = _make_coverage_report(
+            metadata={"num_uncovered_total": 3, "num_unclustered_uncovered": 3}
+        )
+        text = format_coverage_report(report)
+        assert "No reportable gap clusters found" in text
 
     def test_with_gaps_contains_gap_name(self):
         """Hits the `if report.gaps:` table-rendering branch in _format_coverage_rich."""
@@ -189,6 +194,15 @@ class TestFormatCoveragePlain:
         assert "100" in text          # num_production_prompts
         assert "100.0%" in text       # overall_coverage_score
         assert "test-embed" in text
+
+    def test_shows_unclustered_metadata(self):
+        report = _make_coverage_report(
+            metadata={"num_uncovered_total": 3, "num_unclustered_uncovered": 3}
+        )
+        text = _format_coverage_plain(report)
+        assert "Uncovered prompts:   3" in text
+        assert "Unclustered:         3" in text
+        assert "No reportable coverage gap clusters found" in text
 
     def test_with_gap_shows_gap_details(self):
         report = _make_coverage_report(gaps=[_make_coverage_gap()])

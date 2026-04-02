@@ -1,11 +1,9 @@
-import numpy as np
-import pytest
 from faultmap.slicing.statistics import (
-    test_cluster_failure_rate,
-    benjamini_hochberg,
     ClusterTestResult,
     _chi2_yates,
     _fisher_exact_one_sided,
+    benjamini_hochberg,
+    test_cluster_failure_rate,
 )
 
 

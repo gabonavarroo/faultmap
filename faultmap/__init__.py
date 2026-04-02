@@ -1,20 +1,20 @@
 """faultmap: Automatically discover where and why your LLM is failing."""
 
 from .analyzer import SliceAnalyzer
+from .exceptions import (
+    ClusteringError,
+    ConfigurationError,
+    EmbeddingError,
+    FaultmapError,
+    LLMError,
+    ScoringError,
+)
 from .models import (
     AnalysisReport,
     CoverageGap,
     CoverageReport,
     FailureSlice,
     ScoringResult,
-)
-from .exceptions import (
-    FaultmapError,
-    EmbeddingError,
-    ScoringError,
-    LLMError,
-    ClusteringError,
-    ConfigurationError,
 )
 
 __version__ = "0.1.0"

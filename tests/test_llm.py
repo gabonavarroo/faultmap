@@ -1,8 +1,10 @@
 import asyncio
+from unittest.mock import AsyncMock, MagicMock, patch
+
 import pytest
-from unittest.mock import AsyncMock, patch, MagicMock
-from faultmap.llm import AsyncLLMClient
+
 from faultmap.exceptions import LLMError
+from faultmap.llm import AsyncLLMClient
 
 
 @pytest.fixture

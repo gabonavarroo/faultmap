@@ -11,7 +11,7 @@ This mode is well-suited for:
   - Translation quality (embed source and translation)
 
 Requirements:
-    pip install faultmap[local,rich]
+    pip install faultmap[rich]
     export OPENAI_API_KEY=...
 """
 
@@ -97,29 +97,93 @@ references = [
     "World War II ended in 1945 with Germany surrendering in May and Japan in September.",
     "The speed of light in a vacuum is exactly 299,792,458 m/s.",
     "NaCl (sodium chloride) is the chemical formula for common table salt.",
-    "Earth has 7 continents: Africa, Antarctica, Asia, Australia, Europe, North America, South America.",
-    "Jupiter is the largest planet, with a mass more than twice that of all other planets combined.",
+    (
+        "Earth has 7 continents: Africa, Antarctica, Asia, Australia, Europe, "
+        "North America, South America."
+    ),
+    (
+        "Jupiter is the largest planet, with a mass more than twice that of all "
+        "other planets combined."
+    ),
     "Brazil's official language is Portuguese, a legacy of Portuguese colonization.",
     "Japan's official currency is the Yen (¥), issued by the Bank of Japan.",
 
     # Technical references (detailed correct answers)
-    "Gradient descent minimizes a loss function by iteratively updating parameters in the direction of the negative gradient, scaled by the learning rate.",
-    "TCP provides reliable, ordered, connection-based delivery with error checking; UDP is connectionless and faster but offers no delivery guarantees.",
-    "The transformer architecture uses self-attention mechanisms to weigh the importance of different tokens when encoding sequences, enabling parallelization unlike RNNs.",
-    "The bias-variance tradeoff describes the tension between underfitting (high bias) and overfitting (high variance) — reducing one typically increases the other.",
-    "HTTPS encrypts HTTP traffic using TLS: the server presents a certificate, a shared symmetric key is negotiated via asymmetric crypto, and data is encrypted with that key.",
-    "A race condition occurs when program behavior depends on the relative timing of uncontrollable events like thread scheduling, often causing incorrect results.",
-    "The CAP theorem states that a distributed system can only guarantee two of three properties simultaneously: Consistency, Availability, and Partition tolerance.",
-    "O(n log n) means the algorithm's runtime grows proportionally to n times log(n) — typical of efficient sorting algorithms like mergesort and heapsort.",
-    "Backpropagation uses the chain rule of calculus to compute partial derivatives of the loss with respect to each weight, propagating gradients backward through layers.",
-    "A deadlock occurs when two or more processes each hold a resource the other needs and none can proceed, creating a circular wait.",
+    (
+        "Gradient descent minimizes a loss function by iteratively updating "
+        "parameters in the direction of the negative gradient, scaled by the "
+        "learning rate."
+    ),
+    (
+        "TCP provides reliable, ordered, connection-based delivery with error "
+        "checking; UDP is connectionless and faster but offers no delivery "
+        "guarantees."
+    ),
+    (
+        "The transformer architecture uses self-attention mechanisms to weigh "
+        "the importance of different tokens when encoding sequences, enabling "
+        "parallelization unlike RNNs."
+    ),
+    (
+        "The bias-variance tradeoff describes the tension between underfitting "
+        "(high bias) and overfitting (high variance) — reducing one typically "
+        "increases the other."
+    ),
+    (
+        "HTTPS encrypts HTTP traffic using TLS: the server presents a "
+        "certificate, a shared symmetric key is negotiated via asymmetric "
+        "crypto, and data is encrypted with that key."
+    ),
+    (
+        "A race condition occurs when program behavior depends on the relative "
+        "timing of uncontrollable events like thread scheduling, often causing "
+        "incorrect results."
+    ),
+    (
+        "The CAP theorem states that a distributed system can only guarantee "
+        "two of three properties simultaneously: Consistency, Availability, "
+        "and Partition tolerance."
+    ),
+    (
+        "O(n log n) means the algorithm's runtime grows proportionally to n "
+        "times log(n) — typical of efficient sorting algorithms like "
+        "mergesort and heapsort."
+    ),
+    (
+        "Backpropagation uses the chain rule of calculus to compute partial "
+        "derivatives of the loss with respect to each weight, propagating "
+        "gradients backward through layers."
+    ),
+    (
+        "A deadlock occurs when two or more processes each hold a resource the "
+        "other needs and none can proceed, creating a circular wait."
+    ),
 
     # General references
-    "Photosynthesis converts light energy into chemical energy stored as glucose: 6CO2 + 6H2O + light → C6H12O6 + 6O2.",
-    "Vaccines introduce antigens (weakened/inactivated pathogens or mRNA instructions) that trigger the immune system to produce antibodies without causing disease.",
-    "Rainbows occur when white sunlight enters a water droplet, refracts, reflects off the back, and refracts again on exit — splitting into spectral colors.",
-    "Inflation measures the rate at which the general price level of goods and services rises, eroding purchasing power; tracked by indices like CPI.",
-    "Aircraft wings are shaped (airfoil) so air moves faster over the top, reducing pressure above the wing, while the wing's angle of attack deflects air downward.",
+    (
+        "Photosynthesis converts light energy into chemical energy stored as "
+        "glucose: 6CO2 + 6H2O + light → C6H12O6 + 6O2."
+    ),
+    (
+        "Vaccines introduce antigens (weakened/inactivated pathogens or mRNA "
+        "instructions) that trigger the immune system to produce antibodies "
+        "without causing disease."
+    ),
+    (
+        "Rainbows occur when white sunlight enters a water droplet, refracts, "
+        "reflects off the back, and refracts again on exit — splitting into "
+        "spectral colors."
+    ),
+    (
+        "Inflation measures the rate at which the general price level of goods "
+        "and services rises, eroding purchasing power; tracked by indices "
+        "like CPI."
+    ),
+    (
+        "Aircraft wings are shaped (airfoil) so air moves faster over the top, "
+        "reducing pressure above the wing, while the wing's angle of attack "
+        "deflects air downward."
+    ),
 ] * 2
 
 # ---------------------------------------------------------------------------
@@ -128,7 +192,7 @@ references = [
 
 analyzer = SliceAnalyzer(
     model="gpt-4o-mini",
-    embedding_model="all-MiniLM-L6-v2",
+    embedding_model="text-embedding-3-small",
     min_slice_size=5,
     failure_threshold=0.5,  # cosine similarity < 0.5 = failure
     significance_level=0.05,

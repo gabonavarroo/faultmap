@@ -45,10 +45,13 @@ def _format_analysis_plain(report: AnalysisReport) -> str:
             lines.append(f'Slice {i}: "{s.name}"')
             lines.append(f"  Description:    {s.description}")
             lines.append(f"  Size:           {s.size} prompts")
-            lines.append(f"  Failure rate:   {s.failure_rate:.1%} (vs {s.baseline_rate:.1%} baseline)")
+            lines.append(
+                f"  Failure rate:   {s.failure_rate:.1%} "
+                f"(vs {s.baseline_rate:.1%} baseline)"
+            )
             lines.append(f"  Effect size:    {s.effect_size:.1f}x")
             lines.append(f"  Adj. p-value:   {s.adjusted_p_value:.6f} ({s.test_used})")
-            lines.append(f"  Examples:")
+            lines.append("  Examples:")
             for prompt in s.representative_prompts[:5]:
                 truncated = prompt[:120] + ("..." if len(prompt) > 120 else "")
                 lines.append(f"    - {truncated}")
@@ -58,9 +61,10 @@ def _format_analysis_plain(report: AnalysisReport) -> str:
 
 
 def _format_analysis_rich(report: AnalysisReport) -> str:
+    from io import StringIO
+
     from rich.console import Console
     from rich.table import Table
-    from io import StringIO
 
     console = Console(file=StringIO(), force_terminal=True, width=120)
 
@@ -124,10 +128,22 @@ def _format_coverage_plain(report: CoverageReport) -> str:
         f"Embedding model:     {report.embedding_model}",
         f"Gaps found:          {report.num_gaps}",
     ]
+    unclustered = int(report.metadata.get("num_unclustered_uncovered", 0))
+    total_uncovered = report.metadata.get("num_uncovered_total")
+    if total_uncovered is not None:
+        lines.append(f"Uncovered prompts:   {int(total_uncovered)}")
+    if unclustered:
+        lines.append(f"Unclustered:         {unclustered}")
 
     if not report.gaps:
         lines.append(thin)
-        lines.append("No significant coverage gaps found.")
+        if unclustered:
+            lines.append(
+                "No reportable coverage gap clusters found, "
+                "but some prompts remain uncovered."
+            )
+        else:
+            lines.append("No significant coverage gaps found.")
     else:
         for i, g in enumerate(report.gaps, 1):
             lines.append(thin)
@@ -135,7 +151,7 @@ def _format_coverage_plain(report: CoverageReport) -> str:
             lines.append(f"  Description:     {g.description}")
             lines.append(f"  Size:            {g.size} prompts")
             lines.append(f"  Mean distance:   {g.mean_distance:.4f}")
-            lines.append(f"  Examples:")
+            lines.append("  Examples:")
             for prompt in g.representative_prompts[:5]:
                 truncated = prompt[:120] + ("..." if len(prompt) > 120 else "")
                 lines.append(f"    - {truncated}")
@@ -145,9 +161,10 @@ def _format_coverage_plain(report: CoverageReport) -> str:
 
 
 def _format_coverage_rich(report: CoverageReport) -> str:
+    from io import StringIO
+
     from rich.console import Console
     from rich.table import Table
-    from io import StringIO
 
     console = Console(file=StringIO(), force_terminal=True, width=120)
     console.print("[bold]FAULTMAP COVERAGE REPORT[/bold]", style="cyan")
@@ -156,6 +173,14 @@ def _format_coverage_rich(report: CoverageReport) -> str:
         f"Production: {report.num_production_prompts} | "
         f"Coverage: {report.overall_coverage_score:.1%}"
     )
+    total_uncovered = report.metadata.get("num_uncovered_total")
+    unclustered = int(report.metadata.get("num_unclustered_uncovered", 0))
+    if total_uncovered is not None:
+        console.print(
+            f"Uncovered: {int(total_uncovered)} | "
+            f"Named gaps: {report.num_gaps} | "
+            f"Unclustered: {unclustered}"
+        )
 
     if report.gaps:
         table = Table(show_header=True, header_style="bold")
@@ -168,6 +193,12 @@ def _format_coverage_rich(report: CoverageReport) -> str:
             table.add_row(str(i), g.name, str(g.size), f"{g.mean_distance:.4f}")
         console.print(table)
     else:
-        console.print("[green]No significant coverage gaps found.[/green]")
+        if unclustered:
+            console.print(
+                "[yellow]No reportable gap clusters found, "
+                "but some prompts remain uncovered.[/yellow]"
+            )
+        else:
+            console.print("[green]No significant coverage gaps found.[/green]")
 
     return console.file.getvalue()

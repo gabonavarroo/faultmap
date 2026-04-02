@@ -1,5 +1,6 @@
 import numpy as np
 import pytest
+
 from faultmap.coverage.detector import detect_coverage_gaps
 from faultmap.exceptions import ConfigurationError
 
@@ -67,6 +68,39 @@ class TestDetectCoverageGaps:
         )
         assert len(gap_labels) == 0
 
+    def test_small_uncovered_set_is_preserved_as_unclustered(self):
+        test_embs, prod_embs, prompts = _make_coverage_data()
+        gap_labels, _, _ = detect_coverage_gaps(
+            test_embs,
+            prod_embs,
+            prompts,
+            distance_threshold=1.0,
+            min_gap_size=25,
+        )
+        assert np.all(gap_labels[:30] == -1)
+        assert np.all(gap_labels[30:] == -2)
+
+    def test_noise_labels_remain_uncovered(self, monkeypatch):
+        test_embs, prod_embs, prompts = _make_coverage_data()
+
+        def mock_cluster_embeddings(*args, **kwargs):
+            return np.array([-1] * 20, dtype=int)
+
+        monkeypatch.setattr(
+            "faultmap.coverage.detector.cluster_embeddings",
+            mock_cluster_embeddings,
+        )
+
+        gap_labels, _, _ = detect_coverage_gaps(
+            test_embs,
+            prod_embs,
+            prompts,
+            distance_threshold=1.0,
+            min_gap_size=5,
+        )
+        assert np.all(gap_labels[:30] == -1)
+        assert np.all(gap_labels[30:] == -2)
+
     def test_returns_distances_array(self):
         test_embs, prod_embs, prompts = _make_coverage_data()
         gap_labels, distances, threshold = detect_coverage_gaps(
@@ -84,3 +118,25 @@ class TestDetectCoverageGaps:
         )
         assert used_threshold == 1000.0
         assert np.all(gap_labels == -1)
+
+    def test_invalid_min_gap_size_raises(self):
+        test_embs, prod_embs, prompts = _make_coverage_data()
+        with pytest.raises(ConfigurationError, match="min_gap_size must be > 0"):
+            detect_coverage_gaps(
+                test_embs,
+                prod_embs,
+                prompts,
+                min_gap_size=0,
+            )
+
+    def test_invalid_distance_threshold_raises(self):
+        test_embs, prod_embs, prompts = _make_coverage_data()
+        with pytest.raises(
+            ConfigurationError, match="distance_threshold must be >= 0"
+        ):
+            detect_coverage_gaps(
+                test_embs,
+                prod_embs,
+                prompts,
+                distance_threshold=-1.0,
+            )

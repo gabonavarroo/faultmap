@@ -1,7 +1,8 @@
 from __future__ import annotations
 
 import asyncio
-from typing import TypeVar, Awaitable
+from collections.abc import Awaitable
+from typing import TypeVar
 
 import numpy as np
 

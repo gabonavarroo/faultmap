@@ -2,8 +2,11 @@
 
 > Automatically discover where and why your LLM is failing.
 
+[![PyPI version](https://img.shields.io/pypi/v/faultmap.svg)](https://pypi.org/project/faultmap/)
+[![CI](https://github.com/gabonavarroo/faultmap/actions/workflows/ci.yml/badge.svg)](https://github.com/gabonavarroo/faultmap/actions/workflows/ci.yml)
 [![Python 3.10+](https://img.shields.io/badge/python-3.10+-blue.svg)](https://python.org)
 [![License: Apache 2.0](https://img.shields.io/badge/license-Apache%202.0-green.svg)](LICENSE)
+[![Open in Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/gabonavarroo/faultmap/blob/main/notebooks/tutorial.ipynb)
 
 ---
 
@@ -53,6 +56,16 @@ pip install faultmap[local]         # + sentence-transformers for local embeddin
 pip install faultmap[rich]          # + rich for pretty terminal output
 pip install faultmap[all]           # Everything
 ```
+
+---
+
+## Tutorial
+
+An interactive Jupyter notebook walks through all four usage modes with a **mock path** (no API key needed) and equivalent real API code:
+
+[![Open in Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/gabonavarroo/faultmap/blob/main/notebooks/tutorial.ipynb)
+
+See [`notebooks/tutorial.ipynb`](notebooks/tutorial.ipynb).
 
 ---
 
@@ -150,6 +163,8 @@ json.dumps(report.to_dict())
 ```python
 print(coverage.overall_coverage_score)  # 0.82 (82% of prod prompts are covered)
 print(coverage.num_gaps)                # 3
+print(coverage.metadata["num_uncovered_total"])  # uncovered prompts, clustered or not
+print(coverage.metadata["unclustered_prompt_indices"])  # uncovered prompts below gap threshold
 
 for gap in coverage.gaps:
     print(gap.name)                    # "Two-factor authentication setup"
@@ -169,7 +184,7 @@ for gap in coverage.gaps:
 ```python
 analyzer = SliceAnalyzer(
     model="gpt-4o-mini",           # litellm model string for LLM calls (naming + Mode 3)
-    embedding_model="all-MiniLM-L6-v2",  # embedding model (local or API)
+    embedding_model="text-embedding-3-small",  # default API embedding model
     significance_level=0.05,       # alpha for Benjamini-Hochberg FDR correction
     min_slice_size=10,             # minimum cluster size (smaller clusters ignored)
     failure_threshold=0.5,         # score below this is a failure (for binary classification)
@@ -184,7 +199,7 @@ analyzer = SliceAnalyzer(
 | Parameter | Default | Description |
 |-----------|---------|-------------|
 | `model` | `"gpt-4o-mini"` | litellm model string. Supports 100+ providers: `"anthropic/claude-3-haiku"`, `"ollama/mistral"`, etc. |
-| `embedding_model` | `"all-MiniLM-L6-v2"` | Local model name (sentence-transformers) or API model string. Local models require `pip install faultmap[local]`. |
+| `embedding_model` | `"text-embedding-3-small"` | API model string by default, so `pip install faultmap` works without extras. Local sentence-transformers models require `pip install faultmap[local]`. |
 | `significance_level` | `0.05` | FDR alpha. Slices with `adjusted_p_value < significance_level` are reported. |
 | `min_slice_size` | `10` | Minimum prompts per cluster. Smaller clusters are discarded before testing. |
 | `failure_threshold` | `0.5` | Score cutoff. A prompt with `score < failure_threshold` is counted as a failure. |
@@ -269,6 +284,7 @@ SliceAnalyzer(embedding_model="paraphrase-multilingual-MiniLM-L12-v2")  # multil
 ### API (via litellm)
 
 ```python
+SliceAnalyzer()                                          # defaults to text-embedding-3-small
 SliceAnalyzer(embedding_model="text-embedding-3-small")   # OpenAI
 SliceAnalyzer(embedding_model="text-embedding-3-large")   # OpenAI
 SliceAnalyzer(embedding_model="voyage/voyage-2")          # Voyage AI
@@ -312,6 +328,26 @@ logging.getLogger("faultmap").setLevel(logging.DEBUG)
 ```
 
 faultmap logs progress at each pipeline step: scoring mode, failure counts, cluster sizes, significance results.
+
+---
+
+## Contributing
+
+```bash
+git clone https://github.com/gabonavarroo/faultmap.git
+cd faultmap
+pip install -e ".[dev]"
+pytest tests/ -v
+ruff check .
+```
+
+All tests use mocks — no API keys needed to run the test suite.
+
+---
+
+## Changelog
+
+See [CHANGELOG.md](CHANGELOG.md) for release history.
 
 ---
 

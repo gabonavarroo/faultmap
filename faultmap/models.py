@@ -25,7 +25,9 @@ class ScoringResult:
 
 @dataclass(frozen=True)
 class FailureSlice:
-    """A single statistically significant failure cluster discovered by :meth:`SliceAnalyzer.analyze`.
+    """A single statistically significant failure cluster.
+
+    Discovered by :meth:`SliceAnalyzer.analyze`.
 
     Attributes:
         name: LLM-generated human-readable name (e.g. ``"Legal compliance questions"``).
@@ -60,7 +62,7 @@ class FailureSlice:
     adjusted_p_value: float            # BH-corrected p-value
     test_used: str                     # "chi2" | "fisher"
     sample_indices: list[int]          # ALL indices in the cluster (into original prompts list)
-    examples: list[dict]               # Top-5 dicts: {"prompt": str, "response": str, "score": float}
+    examples: list[dict]               # Top-5 example dicts with prompt/response/score
     representative_prompts: list[str]  # Top-5 prompts closest to cluster centroid
     cluster_id: int                    # Internal cluster label
 
@@ -184,7 +186,10 @@ class CoverageReport:
             "covered" vs "uncovered". Auto-computed as ``mean + 1.5 * std`` if not
             specified.
         embedding_model: Name of the embedding model used.
-        metadata: Optional auxiliary data.
+        metadata: Optional auxiliary data. Coverage audits populate:
+            ``"num_uncovered_total"``, ``"num_clustered_uncovered"``,
+            ``"num_unclustered_uncovered"``, and
+            ``"unclustered_prompt_indices"``.
 
     Example::
 
@@ -204,7 +209,13 @@ class CoverageReport:
     metadata: dict = field(default_factory=dict)
 
     def summary(self) -> str:
+        unclustered = int(self.metadata.get("num_unclustered_uncovered", 0))
         if not self.gaps:
+            if unclustered:
+                return (
+                    f"No reportable coverage gap clusters found, but {unclustered} "
+                    f"production prompt(s) are still uncovered and unclustered."
+                )
             return (
                 f"Test suite appears to cover production traffic well. "
                 f"No significant gaps found among {self.num_production_prompts} "

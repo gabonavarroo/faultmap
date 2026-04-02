@@ -1,9 +1,11 @@
 import numpy as np
 import pytest
-from faultmap.slicing.clustering import (
-    cluster_embeddings, get_representative_prompts,
-)
+
 from faultmap.exceptions import ClusteringError
+from faultmap.slicing.clustering import (
+    cluster_embeddings,
+    get_representative_prompts,
+)
 
 
 def _make_clustered_embeddings(n_per_cluster=30, dim=64, n_clusters=3, seed=42):

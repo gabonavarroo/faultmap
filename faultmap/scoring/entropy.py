@@ -1,4 +1,5 @@
 from __future__ import annotations
+
 import logging
 
 import numpy as np
@@ -110,6 +111,7 @@ class EntropyScorer(BaseScorer):
                 "semantic_entropy": semantic_entropies.tolist(),
                 "self_consistency": self_consistencies.tolist(),
                 "normalized_entropy": normalized_entropy.tolist(),
+                "scores": scores.tolist(),
             },
         )
 

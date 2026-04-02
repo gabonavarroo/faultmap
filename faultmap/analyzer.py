@@ -1,7 +1,7 @@
 from __future__ import annotations
+
 import logging
 import warnings
-from typing import Optional
 
 import numpy as np
 
@@ -10,10 +10,12 @@ from .exceptions import ConfigurationError
 from .labeling import label_clusters
 from .llm import AsyncLLMClient
 from .models import (
-    AnalysisReport, CoverageGap, CoverageReport,
-    FailureSlice, ScoringResult,
+    AnalysisReport,
+    CoverageGap,
+    CoverageReport,
+    FailureSlice,
+    ScoringResult,
 )
-from .report import format_analysis_report, format_coverage_report
 from .utils import run_sync, validate_inputs
 
 logger = logging.getLogger(__name__)
@@ -43,7 +45,7 @@ class SliceAnalyzer:
     def __init__(
         self,
         model: str = "gpt-4o-mini",
-        embedding_model: str = "all-MiniLM-L6-v2",
+        embedding_model: str = "text-embedding-3-small",
         significance_level: float = 0.05,
         min_slice_size: int = 10,
         failure_threshold: float = 0.5,
@@ -63,7 +65,9 @@ class SliceAnalyzer:
             embedding_model: Embedding model name. Local sentence-transformers models
                 are auto-detected by prefix (``"all-MiniLM-"``, ``"all-mpnet-"``,
                 ``"paraphrase-"``); all others route to ``APIEmbedder`` via litellm.
-                Local models require ``pip install faultmap[local]``.
+                The default uses an API-backed embedding model so
+                ``pip install faultmap`` works without optional extras. Local models
+                require ``pip install faultmap[local]``.
             significance_level: FDR alpha for Benjamini-Hochberg correction. Slices
                 with ``adjusted_p_value < significance_level`` are reported.
                 Default ``0.05``.
@@ -91,7 +95,9 @@ class SliceAnalyzer:
         Raises:
             ConfigurationError: If ``clustering_method`` is not ``"hdbscan"`` or
                 ``"agglomerative"``, ``significance_level`` is not in (0, 1),
-                ``failure_threshold`` is not in [0, 1], or ``n_samples < 2``.
+                ``failure_threshold`` is not in [0, 1], ``n_samples < 2``,
+                ``min_slice_size <= 0``, ``max_concurrent_requests <= 0``,
+                ``temperature < 0``, or ``consistency_threshold`` is not in [0, 1].
         """
         # Validate
         if clustering_method not in ("hdbscan", "agglomerative"):
@@ -101,10 +107,18 @@ class SliceAnalyzer:
             )
         if not 0 < significance_level < 1:
             raise ConfigurationError("significance_level must be in (0, 1)")
+        if min_slice_size <= 0:
+            raise ConfigurationError("min_slice_size must be > 0")
         if not 0 <= failure_threshold <= 1:
             raise ConfigurationError("failure_threshold must be in [0, 1]")
         if n_samples < 2:
             raise ConfigurationError("n_samples must be >= 2 for entropy scoring")
+        if max_concurrent_requests <= 0:
+            raise ConfigurationError("max_concurrent_requests must be > 0")
+        if temperature < 0:
+            raise ConfigurationError("temperature must be >= 0")
+        if not 0 <= consistency_threshold <= 1:
+            raise ConfigurationError("consistency_threshold must be in [0, 1]")
 
         self.model = model
         self.embedding_model = embedding_model
@@ -129,8 +143,8 @@ class SliceAnalyzer:
         self,
         prompts: list[str],
         responses: list[str],
-        scores: Optional[list[float]] = None,
-        references: Optional[list[str]] = None,
+        scores: list[float] | None = None,
+        references: list[str] | None = None,
     ) -> AnalysisReport:
         """Discover failure slices — input regions where your LLM fails significantly more.
 
@@ -171,8 +185,8 @@ class SliceAnalyzer:
         self,
         prompts: list[str],
         responses: list[str],
-        scores: Optional[list[float]],
-        references: Optional[list[str]],
+        scores: list[float] | None,
+        references: list[str] | None,
     ) -> AnalysisReport:
         """
         Async orchestration pipeline:
@@ -191,10 +205,12 @@ class SliceAnalyzer:
         12. ASSEMBLE FailureSlice objects
         13. Return AnalysisReport
         """
-        from .scoring import PrecomputedScorer, ReferenceScorer, EntropyScorer
+        from .scoring import EntropyScorer, PrecomputedScorer, ReferenceScorer
         from .slicing import (
-            cluster_embeddings, get_representative_prompts,
-            test_cluster_failure_rate, benjamini_hochberg,
+            benjamini_hochberg,
+            cluster_embeddings,
+            get_representative_prompts,
+            test_cluster_failure_rate,
         )
 
         # 1. Validate
@@ -247,6 +263,7 @@ class SliceAnalyzer:
                 num_clusters_tested=0, num_significant=0,
                 clustering_method=self.clustering_method,
                 embedding_model=self.embedding_model,
+                metadata={"scoring_metadata": scoring_result.metadata},
             )
 
         # 6. Embed prompts
@@ -300,6 +317,7 @@ class SliceAnalyzer:
                 num_clusters_tested=len(corrected), num_significant=0,
                 clustering_method=self.clustering_method,
                 embedding_model=self.embedding_model,
+                metadata={"scoring_metadata": scoring_result.metadata},
             )
 
         # 11. Name
@@ -396,7 +414,8 @@ class SliceAnalyzer:
             ``coverage.to_dict()`` returns a JSON-serializable dict.
 
         Raises:
-            ConfigurationError: If ``test_prompts`` or ``production_prompts`` is empty.
+            ConfigurationError: If ``test_prompts`` or ``production_prompts`` is
+                empty, ``min_gap_size <= 0``, or ``distance_threshold < 0``.
         """
         return run_sync(self._audit_coverage_async(
             test_prompts, production_prompts, distance_threshold, min_gap_size
@@ -425,6 +444,10 @@ class SliceAnalyzer:
             raise ConfigurationError("test_prompts must be non-empty")
         if not production_prompts:
             raise ConfigurationError("production_prompts must be non-empty")
+        if min_gap_size <= 0:
+            raise ConfigurationError("min_gap_size must be > 0")
+        if distance_threshold is not None and distance_threshold < 0:
+            raise ConfigurationError("distance_threshold must be >= 0")
 
         # Embed
         logger.info("Embedding test prompts...")
@@ -441,19 +464,30 @@ class SliceAnalyzer:
             clustering_method=self.clustering_method,
         )
 
+        total = len(production_prompts)
+        total_uncovered = int(np.sum(gap_labels != -1))
+        unclustered_prompt_indices = np.where(gap_labels == -2)[0].tolist()
+        coverage_metadata = {
+            "num_uncovered_total": total_uncovered,
+            "num_clustered_uncovered": int(np.sum(gap_labels >= 0)),
+            "num_unclustered_uncovered": len(unclustered_prompt_indices),
+            "unclustered_prompt_indices": unclustered_prompt_indices,
+        }
+
         unique_gaps = sorted(set(gap_labels))
         if -1 in unique_gaps:
             unique_gaps.remove(-1)
+        if -2 in unique_gaps:
+            unique_gaps.remove(-2)
 
         if not unique_gaps:
-            total = len(production_prompts)
-            uncovered = int(np.sum(gap_labels != -1))
             return CoverageReport(
                 gaps=[], num_test_prompts=len(test_prompts),
                 num_production_prompts=total, num_gaps=0,
-                overall_coverage_score=1.0 - (uncovered / total if total else 0),
+                overall_coverage_score=1.0 - (total_uncovered / total if total else 0),
                 distance_threshold=used_threshold,
                 embedding_model=self.embedding_model,
+                metadata=coverage_metadata,
             )
 
         # Representatives + metadata per gap
@@ -463,7 +497,7 @@ class SliceAnalyzer:
             mask = gap_labels == cid
             size = int(np.sum(mask))
             mean_dist = float(np.mean(nn_distances[mask]))
-            rep_prompts, rep_indices = get_representative_prompts(
+            rep_prompts, _ = get_representative_prompts(
                 prod_emb, gap_labels, cid, production_prompts, top_k=10
             )
             clusters_texts.append(rep_prompts)
@@ -477,9 +511,6 @@ class SliceAnalyzer:
         )
 
         # Assemble
-        total_uncovered = int(np.sum(gap_labels >= 0))
-        total = len(production_prompts)
-
         gaps: list[CoverageGap] = []
         for label, (cid, size, mean_dist, rep_prompts, all_idx) in zip(
             cluster_labels, gaps_meta
@@ -499,6 +530,7 @@ class SliceAnalyzer:
             overall_coverage_score=1.0 - (total_uncovered / total if total else 0),
             distance_threshold=used_threshold,
             embedding_model=self.embedding_model,
+            metadata=coverage_metadata,
         )
 
         logger.info(report.summary())

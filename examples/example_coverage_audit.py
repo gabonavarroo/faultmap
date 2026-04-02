@@ -16,7 +16,7 @@ A low overall_coverage_score means your test suite is missing large portions
 of what real users are asking.
 
 Requirements:
-    pip install faultmap[local,rich]
+    pip install faultmap[rich]
     export OPENAI_API_KEY=...
 """
 
@@ -109,7 +109,7 @@ production_prompts = [
 
 analyzer = SliceAnalyzer(
     model="gpt-4o-mini",
-    embedding_model="all-MiniLM-L6-v2",
+    embedding_model="text-embedding-3-small",
     min_slice_size=5,
 )
 
@@ -130,7 +130,7 @@ print(coverage)
 # Inspect gaps in detail
 # ---------------------------------------------------------------------------
 
-print(f"\n--- Coverage Summary ---")
+print("\n--- Coverage Summary ---")
 print(f"Overall coverage score: {coverage.overall_coverage_score:.1%}")
 print(f"Test prompts: {coverage.num_test_prompts}")
 print(f"Production prompts: {coverage.num_production_prompts}")
@@ -138,17 +138,17 @@ print(f"Coverage gaps found: {coverage.num_gaps}")
 print(f"Distance threshold used: {coverage.distance_threshold:.4f}")
 
 if coverage.gaps:
-    print(f"\n--- Gaps (sorted by severity) ---")
+    print("\n--- Gaps (sorted by severity) ---")
     for i, gap in enumerate(coverage.gaps, 1):
         print(f"\nGap #{i}: {gap.name!r}")
         print(f"  Description: {gap.description}")
         print(f"  Size: {gap.size} production prompts with no nearby test case")
         print(f"  Mean distance to nearest test prompt: {gap.mean_distance:.4f}")
-        print(f"  Representative prompts:")
+        print("  Representative prompts:")
         for p in gap.representative_prompts[:3]:
             print(f"    - {p}")
 
-    print(f"\n--- Action items ---")
+    print("\n--- Action items ---")
     print("Add test prompts covering these topics:")
     for gap in coverage.gaps:
         print(f"  * {gap.name}: ~{gap.size} production prompts uncovered")

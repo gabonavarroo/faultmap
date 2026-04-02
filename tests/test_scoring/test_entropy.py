@@ -1,6 +1,8 @@
+from unittest.mock import AsyncMock, MagicMock
+
 import numpy as np
 import pytest
-from unittest.mock import AsyncMock, MagicMock
+
 from faultmap.scoring.entropy import EntropyScorer
 
 
@@ -137,6 +139,7 @@ class TestEntropyFullPipeline:
         result = await scorer.score(["What is the capital of France?"], ["Paris"])
         assert result.scores[0] > 0.8
         assert result.mode == "entropy"
+        assert result.metadata["scores"] == result.scores
 
     @pytest.mark.asyncio
     async def test_uncertain_prompt(self, mock_llm_client, mock_embedder):
