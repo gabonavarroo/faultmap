@@ -7,7 +7,14 @@ This project adheres to [Semantic Versioning](https://semver.org/).
 
 ---
 
-## [0.2.0] — 2026-04-02
+## [0.3.0] — 2026-04-03
+
+## Fixed
+
+### Embeddings
+- Added usage-aware embedding support for asymmetric models, with `query` and `document` routing in the embedding pipeline.
+- Added `embedding_usage_kwargs` and `embedding_max_text_chars` to `SliceAnalyzer` for provider-specific embedding configuration and safer handling of long inputs.
+- Added default NVIDIA `nv-embedqa` role mapping and automatic API text truncation to reduce embedding failures from strict token limits.
 
 Initial release.
 
