@@ -241,3 +241,201 @@ class CoverageReport:
     def __str__(self) -> str:
         from .report import format_coverage_report
         return format_coverage_report(self)
+
+
+# ---------------------------------------------------------------------------
+# Model Comparison Data Models (v0.4.0)
+# ---------------------------------------------------------------------------
+
+
+@dataclass(frozen=True)
+class SliceComparison:
+    """A single statistically significant comparison slice.
+
+    Discovered by :meth:`SliceAnalyzer.compare_models`. Each instance represents
+    a semantic cluster of prompts where one model is statistically better than
+    the other according to McNemar's test with BH FDR correction.
+
+    The McNemar contingency table for this slice::
+
+                          Model B Pass    Model B Fail
+        Model A Pass:    concordant_pass  discordant_a_wins   (A wins)
+        Model A Fail:    discordant_b_wins concordant_fail    (B wins)
+
+    Only discordant pairs (``discordant_a_wins`` + ``discordant_b_wins``) carry
+    information about which model is better.
+
+    Attributes:
+        name: LLM-generated human-readable cluster name.
+        description: LLM-generated one-sentence description of the slice topic.
+        size: Total number of prompts belonging to this cluster.
+        failure_rate_a: Fraction of prompts in this slice where Model A failed.
+        failure_rate_b: Fraction of prompts in this slice where Model B failed.
+        failure_rate_diff: ``failure_rate_a - failure_rate_b``. Positive → A is
+            worse in this slice; negative → B is worse.
+        concordant_pass: Prompts where both models passed (cell ``a``).
+        concordant_fail: Prompts where both models failed (cell ``d``).
+        discordant_a_wins: Prompts where A passed and B failed (cell ``b``).
+        discordant_b_wins: Prompts where A failed and B passed (cell ``c``).
+        advantage_rate: ``discordant_a_wins / (discordant_a_wins + discordant_b_wins)``.
+            ``> 0.5`` → A is better; ``< 0.5`` → B is better. Defaults to ``0.5``
+            when there are no discordant pairs.
+        p_value: Raw two-sided McNemar p-value for this slice.
+        adjusted_p_value: Benjamini-Hochberg FDR-corrected p-value. The primary
+            significance criterion.
+        test_used: Statistical test applied: ``"mcnemar_chi2"`` (chi-squared with
+            continuity correction, used when ``b+c >= 25``), ``"mcnemar_exact"``
+            (exact binomial, used when ``b+c < 25``), or ``"none"`` (no discordant
+            pairs).
+        winner: Which model is significantly better: ``"a"``, ``"b"``, or ``"tie"``.
+            A winner is declared only when ``adjusted_p_value < significance_level``.
+        sample_indices: All prompt indices in this cluster, referencing positions
+            in the original ``prompts`` list passed to
+            :meth:`~SliceAnalyzer.compare_models`. Use to recover raw data.
+        examples: Up to 5 discordant examples as dicts with keys
+            ``"prompt"``, ``"response_a"``, ``"response_b"``, ``"score_a"``,
+            ``"score_b"``. Only discordant pairs (where models disagree) are shown.
+        representative_prompts: Up to 5 prompts closest to the cluster centroid,
+            giving a quick intuition of what this slice covers.
+        cluster_id: Internal cluster label (from HDBSCAN or agglomerative).
+    """
+
+    name: str                           # LLM-generated name
+    description: str                    # LLM-generated 1-sentence explanation
+    size: int                           # Total prompts in this cluster
+    failure_rate_a: float               # Model A failure rate in slice
+    failure_rate_b: float               # Model B failure rate in slice
+    failure_rate_diff: float            # failure_rate_a - failure_rate_b
+    concordant_pass: int                # Both pass (McNemar cell a)
+    concordant_fail: int                # Both fail (McNemar cell d)
+    discordant_a_wins: int              # A pass, B fail (McNemar cell b)
+    discordant_b_wins: int              # A fail, B pass (McNemar cell c)
+    advantage_rate: float               # b/(b+c); 0.5 when no discordant pairs
+    p_value: float                      # Raw two-sided McNemar p-value
+    adjusted_p_value: float             # BH FDR-corrected p-value
+    test_used: str                      # "mcnemar_chi2" | "mcnemar_exact" | "none"
+    winner: str                         # "a" | "b" | "tie"
+    sample_indices: list[int]           # All cluster indices into original prompts
+    examples: list[dict]                # Top-5 discordant example dicts
+    representative_prompts: list[str]   # Top-5 prompts near cluster centroid
+    cluster_id: int                     # Internal cluster label
+
+
+@dataclass(frozen=True)
+class ComparisonReport:
+    """Complete output of :meth:`SliceAnalyzer.compare_models`.
+
+    Compares two models (A and B) on the same prompt set using McNemar's test
+    with Benjamini-Hochberg FDR correction across per-slice tests. Includes both
+    a global headline result and per-slice breakdowns.
+
+    Attributes:
+        slices: Significant comparison slices sorted by ``adjusted_p_value``
+            ascending (most significant first). Only slices where one model is
+            statistically better after BH correction are included.
+        total_prompts: Total number of prompts analyzed.
+        model_a_name: Display name for Model A (e.g. ``"GPT-4o"``).
+        model_b_name: Display name for Model B (e.g. ``"GPT-4o-mini"``).
+        failure_rate_a: Global fraction of prompts where Model A failed.
+        failure_rate_b: Global fraction of prompts where Model B failed.
+        global_p_value: McNemar p-value computed across all prompts (not
+            subject to BH correction — it is a single global test).
+        global_test_used: Test variant for the global result:
+            ``"mcnemar_chi2"``, ``"mcnemar_exact"``, or ``"none"``.
+        global_winner: Overall winner across all prompts: ``"a"``, ``"b"``,
+            or ``"tie"``. Determined by ``global_p_value < significance_level``
+            and ``global_advantage_rate``.
+        global_advantage_rate: ``b/(b+c)`` across all prompts globally.
+            ``> 0.5`` → A wins more disagreements.
+        significance_level: Alpha threshold used for all hypothesis tests.
+        failure_threshold: Score cutoff to binarize scores into pass/fail.
+        scoring_mode: Scoring mode used: ``"precomputed"``, ``"reference"``,
+            or ``"entropy"``.
+        num_clusters_tested: Number of clusters submitted to McNemar's test.
+        num_significant: Number of slices surviving BH correction (``len(slices)``).
+        clustering_method: Clustering algorithm: ``"hdbscan"`` or
+            ``"agglomerative"``.
+        embedding_model: Name of the embedding model used to embed prompts.
+        metadata: Optional auxiliary data.
+
+    Example::
+
+        comparison = analyzer.compare_models(
+            prompts, responses_a, responses_b,
+            scores_a=scores_a, scores_b=scores_b,
+            model_a_name="GPT-4o", model_b_name="GPT-4o-mini",
+        )
+        print(comparison)                          # formatted output
+        print(comparison.global_winner)            # "a"
+        print(comparison.slices[0].advantage_rate) # 0.95
+        d = comparison.to_dict()                   # JSON-serializable dict
+    """
+
+    slices: list[SliceComparison]    # Sorted by adjusted_p_value ascending
+    total_prompts: int
+    model_a_name: str
+    model_b_name: str
+    failure_rate_a: float            # Global failure rate for Model A
+    failure_rate_b: float            # Global failure rate for Model B
+    global_p_value: float            # Global McNemar p-value (single test, no BH)
+    global_test_used: str            # "mcnemar_chi2" | "mcnemar_exact" | "none"
+    global_winner: str               # "a" | "b" | "tie"
+    global_advantage_rate: float     # Global b/(b+c)
+    significance_level: float
+    failure_threshold: float
+    scoring_mode: str                # "precomputed" | "reference" | "entropy"
+    num_clusters_tested: int
+    num_significant: int             # len(slices)
+    clustering_method: str           # "hdbscan" | "agglomerative"
+    embedding_model: str
+    metadata: dict = field(default_factory=dict)
+
+    def summary(self) -> str:
+        """Return a one-paragraph plain-text summary of comparison results."""
+        winner_map = {
+            "a": self.model_a_name,
+            "b": self.model_b_name,
+            "tie": "neither model",
+        }
+
+        if self.global_winner == "tie":
+            global_part = (
+                f"No statistically significant global difference between "
+                f"{self.model_a_name} and {self.model_b_name} "
+                f"({self.total_prompts} prompts, "
+                f"global McNemar p={self.global_p_value:.4f})."
+            )
+        else:
+            winner_name = winner_map[self.global_winner]
+            global_part = (
+                f"Globally, {winner_name} wins "
+                f"(advantage rate={self.global_advantage_rate:.2f}, "
+                f"p={self.global_p_value:.4f}). "
+                f"Failure rates: {self.model_a_name}={self.failure_rate_a:.1%}, "
+                f"{self.model_b_name}={self.failure_rate_b:.1%}."
+            )
+
+        if not self.slices:
+            return global_part + " No significant per-slice differences found."
+
+        worst = self.slices[0]
+        winner_name = winner_map[worst.winner]
+        return (
+            global_part
+            + f" Found {self.num_significant} significant comparison slice(s). "
+            f"Most significant: \"{worst.name}\" ({worst.size} prompts, "
+            f"{winner_name} wins, adj. p={worst.adjusted_p_value:.4f})."
+        )
+
+    def to_dict(self) -> dict:
+        """Return a JSON-serializable dictionary of all report fields.
+
+        All nested dataclasses (``SliceComparison``) are recursively converted.
+        Safe to pass to ``json.dumps()``.
+        """
+        from dataclasses import asdict
+        return asdict(self)
+
+    def __str__(self) -> str:
+        from .report import format_comparison_report
+        return format_comparison_report(self)

@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from .models import AnalysisReport, CoverageReport
+from .models import AnalysisReport, ComparisonReport, CoverageReport
 
 
 def format_analysis_report(report: AnalysisReport) -> str:
@@ -202,3 +202,32 @@ def _format_coverage_rich(report: CoverageReport) -> str:
             console.print("[green]No significant coverage gaps found.[/green]")
 
     return console.file.getvalue()
+
+
+# ---------------------------------------------------------------------------
+# Comparison report formatting (Phase 4 adds full rich + plain implementation)
+# ---------------------------------------------------------------------------
+
+
+def format_comparison_report(report: ComparisonReport) -> str:
+    """Format ComparisonReport. Try rich, fall back to plain text.
+
+    Full rich + plain text implementation is added in Phase 4. This stub
+    delegates to :meth:`~faultmap.models.ComparisonReport.summary` so that
+    ``str(report)`` is functional before Phase 4 is complete.
+    """
+    try:
+        return _format_comparison_rich(report)
+    except ImportError:
+        return _format_comparison_plain(report)
+
+
+def _format_comparison_plain(report: ComparisonReport) -> str:
+    """Plain-text ComparisonReport stub. Replaced by full implementation in Phase 4."""
+    return report.summary()
+
+
+def _format_comparison_rich(report: ComparisonReport) -> str:
+    """Rich ComparisonReport stub. Replaced by full implementation in Phase 4."""
+    import rich  # noqa: F401 — trigger ImportError if rich not installed
+    return _format_comparison_plain(report)

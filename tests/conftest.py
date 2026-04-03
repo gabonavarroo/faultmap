@@ -191,3 +191,137 @@ def make_coverage_data(
 @pytest.fixture
 def coverage_data():
     return make_coverage_data()
+
+
+# ── Comparison Test Data ──────────────────────────────────
+
+
+def make_comparison_data(
+    n_clusters: int = 3,
+    n_per_cluster: int = 30,
+    dim: int = 64,
+    a_better_clusters: list[int] | None = None,
+    b_better_clusters: list[int] | None = None,
+    a_fail_score: float = 0.2,
+    a_pass_score: float = 0.8,
+    b_fail_score: float = 0.2,
+    b_pass_score: float = 0.8,
+    seed: int = 42,
+) -> dict:
+    """Generate synthetic comparison data with known per-cluster winners.
+
+    Creates well-separated clusters in embedding space and assigns scores so
+    that each model has a clear advantage in designated clusters:
+
+    - ``a_better_clusters``: Model A passes (``a_pass_score``), Model B fails
+      (``b_fail_score``).
+    - ``b_better_clusters``: Model A fails (``a_fail_score``), Model B passes
+      (``b_pass_score``).
+    - Remaining clusters: both models pass (``a_pass_score``, ``b_pass_score``).
+
+    Default configuration (3 clusters × 30 prompts = 90 total):
+
+    - Cluster 0: A wins (A=0.8, B=0.2)
+    - Cluster 1: B wins (A=0.2, B=0.8)
+    - Cluster 2: tied   (A=0.8, B=0.8)
+
+    Args:
+        n_clusters: Number of semantic clusters.
+        n_per_cluster: Prompts per cluster.
+        dim: Embedding dimension.
+        a_better_clusters: Cluster indices where A is better. Default ``[0]``.
+        b_better_clusters: Cluster indices where B is better. Default ``[1]``.
+        a_fail_score: Score assigned to Model A in clusters where A is worse.
+        a_pass_score: Score assigned to Model A in clusters where A is better
+            or tied.
+        b_fail_score: Score assigned to Model B in clusters where B is worse.
+        b_pass_score: Score assigned to Model B in clusters where B is better
+            or tied.
+        seed: Random seed for reproducibility.
+
+    Returns:
+        dict with keys:
+            prompts: list[str]
+            responses_a: list[str]
+            responses_b: list[str]
+            scores_a: list[float]
+            scores_b: list[float]
+            embeddings: np.ndarray shape (n_total, dim)
+            labels: np.ndarray shape (n_total,) — ground-truth cluster labels
+            a_better_clusters: list[int]
+            b_better_clusters: list[int]
+    """
+    if a_better_clusters is None:
+        a_better_clusters = [0]
+    if b_better_clusters is None:
+        b_better_clusters = [1]
+
+    rng = np.random.default_rng(seed)
+
+    # Generate well-separated cluster centers on the unit sphere
+    centers = rng.standard_normal((n_clusters, dim))
+    for i in range(n_clusters):
+        centers[i] = centers[i] / np.linalg.norm(centers[i]) * 5.0
+
+    embeddings = []
+    prompts = []
+    responses_a = []
+    responses_b = []
+    scores_a = []
+    scores_b = []
+    labels = []
+
+    cluster_topics = [
+        "legal compliance", "billing disputes", "technical setup",
+        "general questions", "product feedback", "account management",
+    ]
+
+    for c in range(n_clusters):
+        topic = cluster_topics[c % len(cluster_topics)]
+        cluster_embs = centers[c] + rng.standard_normal((n_per_cluster, dim)) * 0.15
+        embeddings.append(cluster_embs)
+
+        for j in range(n_per_cluster):
+            prompts.append(
+                f"[{topic}] prompt {c}-{j}: How do I handle {topic} issue #{j}?"
+            )
+            responses_a.append(f"Model A response about {topic} for query {j}")
+            responses_b.append(f"Model B response about {topic} for query {j}")
+
+            if c in a_better_clusters:
+                # A passes, B fails
+                scores_a.append(a_pass_score)
+                scores_b.append(b_fail_score)
+            elif c in b_better_clusters:
+                # A fails, B passes
+                scores_a.append(a_fail_score)
+                scores_b.append(b_pass_score)
+            else:
+                # Tied — both pass
+                scores_a.append(a_pass_score)
+                scores_b.append(b_pass_score)
+
+            labels.append(c)
+
+    return {
+        "prompts": prompts,
+        "responses_a": responses_a,
+        "responses_b": responses_b,
+        "scores_a": scores_a,
+        "scores_b": scores_b,
+        "embeddings": np.vstack(embeddings).astype(np.float32),
+        "labels": np.array(labels),
+        "a_better_clusters": a_better_clusters,
+        "b_better_clusters": b_better_clusters,
+    }
+
+
+@pytest.fixture
+def comparison_data():
+    """Default comparison data: 3 clusters × 30 prompts.
+
+    Cluster 0: A wins (A=0.8, B=0.2).
+    Cluster 1: B wins (A=0.2, B=0.8).
+    Cluster 2: tied  (A=0.8, B=0.8).
+    """
+    return make_comparison_data()
