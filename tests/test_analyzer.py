@@ -50,6 +50,35 @@ def _make_mock_embedder():
     return embedder
 
 
+def _make_cluster_routing_embedder(query_embeddings, document_dim=64):
+    """
+    Embedder with deterministic, precomputed query embeddings for clustering tests.
+
+    Query texts get the supplied embeddings in call order so analyzer tests still
+    exercise real clustering with stable geometry. Document embeddings remain
+    deterministic and usage-aware for call assertions.
+    """
+    embedder = MagicMock()
+    embedder.dimension = query_embeddings.shape[1]
+
+    def mock_documents(texts, *, usage="document"):
+        embs = []
+        for t in texts:
+            seed = hash((t, usage)) % (2**31)
+            rng = np.random.default_rng(seed)
+            embs.append(rng.standard_normal(document_dim))
+        return np.array(embs, dtype=np.float32)
+
+    embedder.embed = MagicMock(
+        side_effect=lambda texts, usage="generic": mock_documents(texts, usage=usage)
+    )
+    embedder.embed_queries = MagicMock(return_value=np.asarray(query_embeddings, dtype=np.float32))
+    embedder.embed_documents = MagicMock(
+        side_effect=lambda texts: mock_documents(texts, usage="document")
+    )
+    return embedder
+
+
 def _make_clustered_embeddings(n_clusters=3, n_per_cluster=30, dim=64, seed=42):
     """
     Generate well-separated embeddings suitable for HDBSCAN.
@@ -213,14 +242,29 @@ class TestAnalyzeMode1:
         assert report.embedding_model == "mock"
 
     def test_prompt_clustering_uses_query_embeddings(self):
-        embedder = _make_mock_embedder()
+        n_clusters = 3
+        n_per = 12
+        prompts = [f"prompt-{c}-{i}" for c in range(n_clusters) for i in range(n_per)]
+        responses = [f"response-{i}" for i in range(len(prompts))]
+        scores = [
+            0.2 if c == 0 else 0.8
+            for c in range(n_clusters)
+            for _ in range(n_per)
+        ]
+        query_embeddings = _make_clustered_embeddings(
+            n_clusters=n_clusters,
+            n_per_cluster=n_per,
+            seed=123,
+        )
+        embedder = _make_cluster_routing_embedder(query_embeddings)
         analyzer = _make_analyzer(embedder)
-        prompts = [f"prompt-{i}" for i in range(20)]
-        responses = [f"response-{i}" for i in range(20)]
 
-        analyzer.analyze(prompts, responses, scores=[0.2] * 10 + [0.8] * 10)
+        report = analyzer.analyze(prompts, responses, scores=scores)
 
         embedder.embed_queries.assert_called_once_with(prompts)
+        embedder.embed_documents.assert_not_called()
+        assert report.total_prompts == len(prompts)
+        assert report.num_clusters_tested >= 1
 
 
 class TestAnalyzeMode2:

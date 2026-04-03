@@ -18,6 +18,8 @@ class TestLocalEmbedder:
     def test_empty_input(self):
         """Empty list returns (0, dim) array."""
         embedder = LocalEmbedder.__new__(LocalEmbedder)
+        embedder.batch_size = 64
+        embedder.device = None
         embedder._dimension = 64
         embedder._model = MagicMock()
         result = embedder.embed([])
@@ -25,6 +27,8 @@ class TestLocalEmbedder:
 
     def test_query_usage_prefers_encode_query(self):
         embedder = LocalEmbedder.__new__(LocalEmbedder)
+        embedder.batch_size = 64
+        embedder.device = None
         embedder._dimension = 2
         embedder._model = MagicMock()
         embedder._model.encode_query.return_value = np.array([[1.0, 0.0]])
@@ -37,6 +41,8 @@ class TestLocalEmbedder:
 
     def test_document_usage_falls_back_to_encode(self):
         embedder = LocalEmbedder.__new__(LocalEmbedder)
+        embedder.batch_size = 64
+        embedder.device = None
         embedder._dimension = 2
         embedder._model = MagicMock(spec=["encode"])
         embedder._model.encode.return_value = np.array([[0.0, 1.0]])
