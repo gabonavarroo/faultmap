@@ -23,6 +23,29 @@ class TestLocalEmbedder:
         result = embedder.embed([])
         assert result.shape == (0, 64)
 
+    def test_query_usage_prefers_encode_query(self):
+        embedder = LocalEmbedder.__new__(LocalEmbedder)
+        embedder._dimension = 2
+        embedder._model = MagicMock()
+        embedder._model.encode_query.return_value = np.array([[1.0, 0.0]])
+
+        result = embedder.embed(["test"], usage="query")
+
+        assert result.shape == (1, 2)
+        embedder._model.encode_query.assert_called_once()
+        embedder._model.encode.assert_not_called()
+
+    def test_document_usage_falls_back_to_encode(self):
+        embedder = LocalEmbedder.__new__(LocalEmbedder)
+        embedder._dimension = 2
+        embedder._model = MagicMock(spec=["encode"])
+        embedder._model.encode.return_value = np.array([[0.0, 1.0]])
+
+        result = embedder.embed(["test"], usage="document")
+
+        assert result.shape == (1, 2)
+        embedder._model.encode.assert_called_once()
+
 
 class TestAPIEmbedder:
     def test_batching(self):
@@ -56,6 +79,67 @@ class TestAPIEmbedder:
             result = embedder.embed([])
             assert result.shape == (0, 1536)
 
+    def test_symmetric_models_ignore_usage_by_default(self):
+        embedder = APIEmbedder("text-embedding-3-small")
+
+        mock_resp = MagicMock()
+        mock_resp.data = [{"embedding": [0.0, 1.0], "index": 0}]
+
+        with patch("litellm.embedding", return_value=mock_resp) as mock:
+            embedder.embed(["hello"], usage="query")
+
+        assert mock.call_args.kwargs["encoding_format"] == "float"
+        assert "input_type" not in mock.call_args.kwargs
+
+    def test_nvidia_models_get_role_specific_input_type(self):
+        embedder = APIEmbedder("nvidia_nim/nvidia/nv-embedqa-e5-v5")
+
+        mock_resp = MagicMock()
+        mock_resp.data = [{"embedding": [0.0, 1.0], "index": 0}]
+
+        with patch("litellm.embedding", return_value=mock_resp) as mock:
+            embedder.embed(["hello"], usage="document")
+
+        assert mock.call_args.kwargs["input_type"] == "passage"
+
+    def test_user_usage_kwargs_override_model_defaults(self):
+        embedder = APIEmbedder(
+            "nvidia_nim/nvidia/nv-embedqa-e5-v5",
+            usage_request_kwargs={"document": {"input_type": "document"}},
+        )
+
+        mock_resp = MagicMock()
+        mock_resp.data = [{"embedding": [0.0, 1.0], "index": 0}]
+
+        with patch("litellm.embedding", return_value=mock_resp) as mock:
+            embedder.embed(["hello"], usage="document")
+
+        assert mock.call_args.kwargs["input_type"] == "document"
+
+    def test_long_texts_are_truncated_before_api_call(self):
+        embedder = APIEmbedder("text-embedding-3-small", max_text_chars=10)
+        long_text = "x" * 25
+
+        mock_resp = MagicMock()
+        mock_resp.data = [{"embedding": [0.0, 1.0], "index": 0}]
+
+        with patch("litellm.embedding", return_value=mock_resp) as mock:
+            embedder.embed([long_text])
+
+        assert mock.call_args.kwargs["input"] == ["x" * 10]
+
+    def test_truncation_can_be_disabled(self):
+        embedder = APIEmbedder("text-embedding-3-small", max_text_chars=None)
+        long_text = "x" * 25
+
+        mock_resp = MagicMock()
+        mock_resp.data = [{"embedding": [0.0, 1.0], "index": 0}]
+
+        with patch("litellm.embedding", return_value=mock_resp) as mock:
+            embedder.embed([long_text])
+
+        assert mock.call_args.kwargs["input"] == [long_text]
+
 
 class TestGetEmbedder:
     def test_local_model_names(self):
@@ -67,3 +151,16 @@ class TestGetEmbedder:
     def test_api_model_names(self):
         assert isinstance(get_embedder("text-embedding-3-small"), APIEmbedder)
         assert isinstance(get_embedder("text-embedding-ada-002"), APIEmbedder)
+
+    def test_api_kwargs_are_forwarded(self):
+        embedder = get_embedder(
+            "text-embedding-3-small",
+            api_max_text_chars=500,
+            api_request_kwargs={"dimensions": 512},
+            api_usage_request_kwargs={"query": {"input_type": "query"}},
+        )
+
+        assert isinstance(embedder, APIEmbedder)
+        assert embedder.max_text_chars == 500
+        assert embedder.request_kwargs == {"dimensions": 512}
+        assert embedder.usage_request_kwargs["query"]["input_type"] == "query"

@@ -10,7 +10,7 @@ class TestReferenceScorer:
     def _make_mock_embedder(self, response_embs, reference_embs):
         """Create a mock embedder that returns known embeddings."""
         embedder = MagicMock()
-        embedder.embed = MagicMock(side_effect=[
+        embedder.embed_documents = MagicMock(side_effect=[
             np.array(response_embs, dtype=np.float32),
             np.array(reference_embs, dtype=np.float32),
         ])
@@ -52,3 +52,11 @@ class TestReferenceScorer:
         scorer = ReferenceScorer(embedder, ["ref"])
         result = await scorer.score(["p"], ["r"])
         assert result.mode == "reference"
+
+    @pytest.mark.asyncio
+    async def test_uses_document_embeddings(self):
+        emb = [[1.0, 0.0]]
+        embedder = self._make_mock_embedder(emb, emb)
+        scorer = ReferenceScorer(embedder, ["ref"])
+        await scorer.score(["p"], ["r"])
+        assert embedder.embed_documents.call_count == 2

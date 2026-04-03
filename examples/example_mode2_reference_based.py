@@ -191,10 +191,14 @@ references = [
 # ---------------------------------------------------------------------------
 
 analyzer = SliceAnalyzer(
+    # model="nvidia_nim/meta/llama-3.3-70b-instruct",
+    # embedding_model="nvidia_nim/nvidia/nv-embedqa-e5-v5",
+    # # Optional for asymmetric embedding APIs. Symmetric models can omit this.
+    # embedding_usage_kwargs={"query": {"input_type": "query"}},
     model="gpt-4o-mini",
     embedding_model="text-embedding-3-small",
     min_slice_size=5,
-    failure_threshold=0.5,  # cosine similarity < 0.5 = failure
+    failure_threshold=0.85,  # cosine similarity < 0.5 = failure
     significance_level=0.05,
 )
 

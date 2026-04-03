@@ -14,6 +14,7 @@ def mock_llm_client():
 @pytest.fixture
 def mock_embedder():
     embedder = MagicMock()
+    embedder.embed_documents = MagicMock()
     return embedder
 
 
@@ -127,7 +128,7 @@ class TestEntropyFullPipeline:
         identical_vec = np.random.randn(dim)
         identical_vec = identical_vec / np.linalg.norm(identical_vec)
         all_embs = np.tile(identical_vec, (n_samples + 1, 1)).astype(np.float32)
-        mock_embedder.embed.return_value = all_embs
+        mock_embedder.embed_documents.return_value = all_embs
 
         scorer = EntropyScorer(
             client=mock_llm_client,
@@ -153,7 +154,7 @@ class TestEntropyFullPipeline:
         # Orthogonal embeddings for samples, plus original at end
         dim = n_samples + 1
         all_embs = np.eye(dim, dtype=np.float32)  # each vector is orthogonal
-        mock_embedder.embed.return_value = all_embs
+        mock_embedder.embed_documents.return_value = all_embs
 
         scorer = EntropyScorer(
             client=mock_llm_client,
@@ -164,3 +165,19 @@ class TestEntropyFullPipeline:
 
         result = await scorer.score(["Speculative question"], ["Guess"])
         assert result.scores[0] < 0.2
+
+    @pytest.mark.asyncio
+    async def test_uses_document_embeddings(self, mock_llm_client, mock_embedder):
+        n_samples = 2
+        mock_llm_client.complete_batch.return_value = ["a", "b"]
+        mock_embedder.embed_documents.return_value = np.eye(3, dtype=np.float32)
+
+        scorer = EntropyScorer(
+            client=mock_llm_client,
+            embedder=mock_embedder,
+            n_samples=n_samples,
+            consistency_threshold=0.8,
+        )
+
+        await scorer.score(["p"], ["r"])
+        mock_embedder.embed_documents.assert_called_once()

@@ -21,8 +21,10 @@ class AsyncLLMClient:
     def __init__(
         self,
         model: str,
-        max_concurrent_requests: int = 50,
-        max_retries: int = 3,
+        #Remember to set the appropriate embedding model when using reference-based scoring with asymmetric APIs
+        #Modify max_concurrent_requests based on your API rate limits and expected batch sizes
+        max_concurrent_requests: int = 50, 
+        max_retries: int = 10,
         timeout: float = 60.0,
     ) -> None:
         self.model = model
@@ -54,6 +56,7 @@ class AsyncLLMClient:
         - Timeout → handled by backoff
         """
         import litellm
+        litellm.telemetry = False
 
         last_error: Exception | None = None
         async with self._semaphore:

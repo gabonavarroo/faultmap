@@ -290,6 +290,18 @@ SliceAnalyzer(embedding_model="text-embedding-3-large")   # OpenAI
 SliceAnalyzer(embedding_model="voyage/voyage-2")          # Voyage AI
 ```
 
+For asymmetric embedding APIs, you can pass role-specific request options:
+
+```python
+SliceAnalyzer(
+    embedding_model="nvidia_nim/nvidia/nv-embedqa-e5-v5",
+    embedding_usage_kwargs={"query": {"input_type": "query"}},
+)
+```
+
+API embeddings also truncate long texts to 2000 characters by default to avoid
+strict provider token limits. Set `embedding_max_text_chars=None` to disable it.
+
 ---
 
 ## LLM Providers

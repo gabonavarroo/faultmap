@@ -33,8 +33,8 @@ class ReferenceScorer(BaseScorer):
         self._references = references
 
     async def score(self, prompts, responses, **kwargs) -> ScoringResult:
-        resp_emb = self._embedder.embed(responses)
-        ref_emb = self._embedder.embed(self._references)
+        resp_emb = self._embedder.embed_documents(responses)
+        ref_emb = self._embedder.embed_documents(self._references)
 
         sims = cosine_similarity_pairs(resp_emb, ref_emb)
         scores = np.clip((sims + 1.0) / 2.0, 0.0, 1.0)

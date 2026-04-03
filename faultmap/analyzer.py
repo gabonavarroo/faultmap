@@ -46,6 +46,9 @@ class SliceAnalyzer:
         self,
         model: str = "gpt-4o-mini",
         embedding_model: str = "text-embedding-3-small",
+        embedding_max_text_chars: int | None = 2000,
+        embedding_request_kwargs: dict[str, object] | None = None,
+        embedding_usage_kwargs: dict[str, dict[str, object]] | None = None,
         significance_level: float = 0.05,
         min_slice_size: int = 10,
         failure_threshold: float = 0.5,
@@ -68,6 +71,15 @@ class SliceAnalyzer:
                 The default uses an API-backed embedding model so
                 ``pip install faultmap`` works without optional extras. Local models
                 require ``pip install faultmap[local]``.
+            embedding_max_text_chars: Character-level truncation applied to API
+                embedding inputs before sending requests. Helps avoid provider token
+                limits on long texts. ``None`` disables truncation. Ignored for local
+                models. Default ``2000``.
+            embedding_request_kwargs: Optional kwargs passed to API embedding calls
+                for all usages. Ignored for local models.
+            embedding_usage_kwargs: Optional per-usage API kwargs keyed by
+                ``"query"`` and/or ``"document"`` for asymmetric embedding models.
+                Ignored for local models.
             significance_level: FDR alpha for Benjamini-Hochberg correction. Slices
                 with ``adjusted_p_value < significance_level`` are reported.
                 Default ``0.05``.
@@ -122,6 +134,9 @@ class SliceAnalyzer:
 
         self.model = model
         self.embedding_model = embedding_model
+        self.embedding_max_text_chars = embedding_max_text_chars
+        self.embedding_request_kwargs = embedding_request_kwargs
+        self.embedding_usage_kwargs = embedding_usage_kwargs
         self.significance_level = significance_level
         self.min_slice_size = min_slice_size
         self.failure_threshold = failure_threshold
@@ -131,7 +146,12 @@ class SliceAnalyzer:
         self.temperature = temperature
         self.consistency_threshold = consistency_threshold
 
-        self._embedder: Embedder = get_embedder(embedding_model)
+        self._embedder: Embedder = get_embedder(
+            embedding_model,
+            api_max_text_chars=embedding_max_text_chars,
+            api_request_kwargs=embedding_request_kwargs,
+            api_usage_request_kwargs=embedding_usage_kwargs,
+        )
         self._llm_client = AsyncLLMClient(
             model=model,
             max_concurrent_requests=max_concurrent_requests,
@@ -268,7 +288,7 @@ class SliceAnalyzer:
 
         # 6. Embed prompts
         logger.info("Embedding prompts...")
-        prompt_embeddings = self._embedder.embed(prompts)
+        prompt_embeddings = self._embedder.embed_queries(prompts)
 
         # 7. Cluster
         logger.info(f"Clustering ({self.clustering_method})...")
@@ -451,9 +471,9 @@ class SliceAnalyzer:
 
         # Embed
         logger.info("Embedding test prompts...")
-        test_emb = self._embedder.embed(test_prompts)
+        test_emb = self._embedder.embed_queries(test_prompts)
         logger.info("Embedding production prompts...")
-        prod_emb = self._embedder.embed(production_prompts)
+        prod_emb = self._embedder.embed_queries(production_prompts)
 
         # Detect gaps
         gap_labels, nn_distances, used_threshold = detect_coverage_gaps(

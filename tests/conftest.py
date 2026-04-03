@@ -18,12 +18,12 @@ class MockEmbedder(Embedder):
     """
     DIM = 64
 
-    def embed(self, texts: list[str]) -> np.ndarray:
+    def embed(self, texts: list[str], *, usage: str = "generic") -> np.ndarray:
         if not texts:
             return np.empty((0, self.DIM), dtype=np.float32)
         embs = []
         for t in texts:
-            seed = hash(t) % (2**31)
+            seed = hash((t, usage)) % (2**31)
             rng = np.random.default_rng(seed)
             vec = rng.standard_normal(self.DIM)
             vec = vec / (np.linalg.norm(vec) + 1e-10)
