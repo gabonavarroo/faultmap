@@ -19,3 +19,14 @@ services:
       - OPENAI_API_KEY=${OPENAI_API_KEY:-}
       - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY:-}
     command: ["python", "-m", "pytest", "-q"]
+
+  dev-local:
+    build:
+      context: .
+      dockerfile: Dockerfile.dev-local
+    volumes:
+      - .:/app
+    environment:
+      - OPENAI_API_KEY=${OPENAI_API_KEY:-}
+      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY:-}
+    command: ["python", "-m", "pytest", "-q"]

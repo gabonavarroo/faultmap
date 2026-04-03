@@ -1,0 +1,12 @@
+FROM python:3.12-slim
+
+WORKDIR /app
+
+# Keep local-model support opt-in because it pulls heavyweight ML wheels.
+RUN pip install --no-cache-dir --upgrade pip
+
+COPY pyproject.toml README.md LICENSE ./
+COPY faultmap/ ./faultmap/
+RUN pip install --no-cache-dir -e ".[local,dev]"
+
+CMD ["python", "-m", "pytest", "-q"]
