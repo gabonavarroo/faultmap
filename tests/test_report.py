@@ -1,11 +1,20 @@
 import sys
 from unittest.mock import patch
 
-from faultmap.models import AnalysisReport, CoverageGap, CoverageReport, FailureSlice
+from faultmap.models import (
+    AnalysisReport,
+    ComparisonReport,
+    CoverageGap,
+    CoverageReport,
+    FailureSlice,
+    SliceComparison,
+)
 from faultmap.report import (
     _format_analysis_plain,
+    _format_comparison_plain,
     _format_coverage_plain,
     format_analysis_report,
+    format_comparison_report,
     format_coverage_report,
 )
 
@@ -260,3 +269,182 @@ class TestImportErrorFallback:
             text = format_coverage_report(report)
         assert "FAULTMAP COVERAGE REPORT" in text
         assert "Auth Gap" in text
+
+    def test_comparison_falls_back_to_plain(self):
+        report = _make_comparison_report()
+        with patch.dict("sys.modules", self._null_rich()):
+            text = format_comparison_report(report)
+        assert "FAULTMAP MODEL COMPARISON REPORT" in text
+        assert "=" * 10 in text
+
+
+# ── Comparison fixtures ───────────────────────────────────
+
+
+def _make_slice_comparison(winner: str = "a") -> SliceComparison:
+    return SliceComparison(
+        name="Legal Compliance",
+        description="Questions about regulatory requirements",
+        size=45,
+        failure_rate_a=0.044,
+        failure_rate_b=0.422,
+        failure_rate_diff=-0.378,
+        concordant_pass=24,
+        concordant_fail=2,
+        discordant_a_wins=18,
+        discordant_b_wins=1,
+        advantage_rate=0.947,
+        p_value=0.0001,
+        adjusted_p_value=0.0002,
+        test_used="mcnemar_exact",
+        winner=winner,
+        sample_indices=list(range(45)),
+        examples=[
+            {
+                "prompt": "How do I comply with GDPR?",
+                "response_a": "resp_a",
+                "response_b": "resp_b",
+                "score_a": 0.9,
+                "score_b": 0.2,
+            }
+        ],
+        representative_prompts=["How do I comply with GDPR requirements?"],
+        cluster_id=0,
+    )
+
+
+def _make_comparison_report(slices=None, global_winner: str = "a") -> ComparisonReport:
+    return ComparisonReport(
+        slices=slices if slices is not None else [],
+        total_prompts=500,
+        model_a_name="GPT-4o",
+        model_b_name="GPT-4o-mini",
+        failure_rate_a=0.12,
+        failure_rate_b=0.24,
+        global_p_value=0.0001,
+        global_test_used="mcnemar_chi2",
+        global_winner=global_winner,
+        global_advantage_rate=0.78,
+        significance_level=0.05,
+        failure_threshold=0.5,
+        scoring_mode="precomputed",
+        num_clusters_tested=8,
+        num_significant=len(slices) if slices else 0,
+        clustering_method="hdbscan",
+        embedding_model="text-embedding-3-small",
+    )
+
+
+# ── Comparison report rich tests ──────────────────────────
+
+
+class TestFormatComparisonReportRich:
+    """Tests via format_comparison_report() which tries rich first."""
+
+    def test_comparison_no_significant_slices(self):
+        report = _make_comparison_report()
+        text = format_comparison_report(report)
+        assert "No statistically significant per-slice differences found" in text
+
+    def test_comparison_with_slices_contains_key_values(self):
+        report = _make_comparison_report(slices=[_make_slice_comparison(winner="a")])
+        text = format_comparison_report(report)
+        assert "Legal Compliance" in text
+        assert "0.95" in text or "0.94" in text  # advantage_rate 18/19 ≈ 0.947
+
+    def test_comparison_global_shown(self):
+        report = _make_comparison_report()
+        text = format_comparison_report(report)
+        assert "GPT-4o" in text
+        assert "GPT-4o-mini" in text
+        assert "0.0001" in text  # global_p_value
+
+    def test_comparison_rich_returns_nonempty(self):
+        report = _make_comparison_report()
+        text = format_comparison_report(report)
+        assert isinstance(text, str)
+        assert len(text) > 0
+
+    def test_comparison_winner_shown_in_table(self):
+        report = _make_comparison_report(slices=[_make_slice_comparison(winner="a")])
+        text = format_comparison_report(report)
+        assert "GPT-4o" in text  # winner column shows model name
+
+    def test_comparison_failure_rates_shown(self):
+        report = _make_comparison_report()
+        text = format_comparison_report(report)
+        # Rich may inject ANSI codes between "12.0" and "%"; check the value part
+        assert "12.0" in text   # failure_rate_a
+        assert "24.0" in text   # failure_rate_b
+
+
+# ── Comparison report plain-text tests ────────────────────
+
+
+class TestFormatComparisonPlain:
+    """Direct calls to _format_comparison_plain bypass the rich try/except."""
+
+    def test_no_slices_header(self):
+        report = _make_comparison_report()
+        text = _format_comparison_plain(report)
+        assert "FAULTMAP MODEL COMPARISON REPORT" in text
+        assert "No statistically significant per-slice differences found" in text
+
+    def test_shows_metadata(self):
+        report = _make_comparison_report()
+        text = _format_comparison_plain(report)
+        assert "GPT-4o" in text
+        assert "GPT-4o-mini" in text
+        assert "500" in text             # total_prompts
+        assert "precomputed" in text     # scoring_mode
+        assert "hdbscan" in text         # clustering_method
+        assert "text-embedding-3-small" in text
+        assert "GLOBAL COMPARISON" in text
+
+    def test_global_winner_shown(self):
+        report = _make_comparison_report(global_winner="a")
+        text = _format_comparison_plain(report)
+        assert "GPT-4o (Model A)" in text  # winner label
+
+    def test_global_tie_shown(self):
+        report = _make_comparison_report(global_winner="tie")
+        text = _format_comparison_plain(report)
+        assert "Winner:            tie" in text
+
+    def test_advantage_rate_line(self):
+        report = _make_comparison_report()
+        text = _format_comparison_plain(report)
+        assert "0.78" in text
+        assert "78%" in text  # formatted as percentage
+        assert "disagreements favor A" in text
+
+    def test_with_slice_shows_slice_details(self):
+        report = _make_comparison_report(slices=[_make_slice_comparison(winner="a")])
+        text = _format_comparison_plain(report)
+        assert "Legal Compliance" in text
+        assert "Questions about regulatory requirements" in text
+        assert "45 prompts" in text
+        assert "mcnemar_exact" in text
+        assert "A wins 18, B wins 1" in text
+
+    def test_with_slice_winner_tag(self):
+        report = _make_comparison_report(slices=[_make_slice_comparison(winner="a")])
+        text = _format_comparison_plain(report)
+        assert "** GPT-4o wins **" in text
+
+    def test_with_slice_b_wins_tag(self):
+        s = _make_slice_comparison(winner="b")
+        report = _make_comparison_report(slices=[s])
+        text = _format_comparison_plain(report)
+        assert "** GPT-4o-mini wins **" in text
+
+    def test_with_slice_shows_examples(self):
+        report = _make_comparison_report(slices=[_make_slice_comparison(winner="a")])
+        text = _format_comparison_plain(report)
+        assert "How do I comply with GDPR requirements?" in text
+
+    def test_comparison_plain_returns_nonempty(self):
+        report = _make_comparison_report()
+        text = _format_comparison_plain(report)
+        assert isinstance(text, str)
+        assert len(text) > 0

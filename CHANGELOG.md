@@ -7,6 +7,29 @@ This project adheres to [Semantic Versioning](https://semver.org/).
 
 ---
 
+## [0.4.0] — 2026-04-03
+
+### Added
+
+**Model comparison**
+- `compare_models()` — new public method on `SliceAnalyzer` that compares two models on the same prompt set using paired statistical testing (McNemar's test)
+- Supports all three scoring modes: precomputed scores (Mode 1), reference-based (Mode 2), and autonomous entropy scoring (Mode 3)
+- Global McNemar test gives a headline winner even when no individual slice reaches significance
+- Per-slice McNemar with Benjamini-Hochberg FDR correction identifies which semantic input slices favor each model
+- Exact binomial fallback for slices with fewer than 25 discordant pairs (small-sample safe)
+- `advantage_rate` effect size: proportion of disagreements where Model A wins (intuitive and actionable)
+- `ComparisonReport` frozen dataclass with `__str__()`, `summary()`, `to_dict()` — same pattern as `AnalysisReport`
+- `SliceComparison` frozen dataclass with per-slice statistics, discordant pair counts, examples, and winner annotation
+- `faultmap/comparison/` subpackage (`statistics.py`) — McNemar's test, exact binomial, BH correction for paired data
+- `validate_comparison_inputs()` in `utils.py` — validates lengths, score ranges, and symmetric scores requirement
+- Rich table formatter and plain-text formatter for `ComparisonReport`
+- `examples/example_model_comparison.py` — standalone example with 3 semantic groups and known per-slice winners
+
+**Exports**
+- `ComparisonReport` and `SliceComparison` added to `faultmap.__all__`
+
+---
+
 ## [0.3.0] — 2026-04-03
 
 ## Fixed

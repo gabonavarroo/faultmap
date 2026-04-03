@@ -10,14 +10,14 @@
 
 ## Current Implementation State
 
-### Completed — Phases 1–7
+### Completed — Phases 1–8
 
 | File | Status |
 |------|--------|
 | `pyproject.toml` | Done |
 | `faultmap/exceptions.py` | Done |
-| `faultmap/models.py` | Done (all dataclasses) |
-| `faultmap/utils.py` | Done |
+| `faultmap/models.py` | Done (all dataclasses incl. `SliceComparison`, `ComparisonReport`) |
+| `faultmap/utils.py` | Done (incl. `validate_comparison_inputs`) |
 | `faultmap/__init__.py` | Done |
 | `faultmap/llm.py` | Done |
 | `faultmap/embeddings.py` | Done |
@@ -32,10 +32,12 @@
 | `faultmap/slicing/statistics.py` | Done |
 | `faultmap/coverage/__init__.py` | Done |
 | `faultmap/coverage/detector.py` | Done |
-| `faultmap/report.py` | Done (rich + plain text) |
-| `faultmap/analyzer.py` | Done (full SliceAnalyzer) |
+| `faultmap/comparison/__init__.py` | Done |
+| `faultmap/comparison/statistics.py` | Done (McNemar + exact binomial + BH) |
+| `faultmap/report.py` | Done (rich + plain text, incl. comparison formatter) |
+| `faultmap/analyzer.py` | Done (full SliceAnalyzer incl. `compare_models`) |
 | `tests/__init__.py` | Done |
-| `tests/conftest.py` | Done (`MockEmbedder`, `make_clustered_data`, `make_coverage_data`) |
+| `tests/conftest.py` | Done (`MockEmbedder`, `make_clustered_data`, `make_coverage_data`, `make_comparison_data`) |
 | `tests/test_utils.py` | Done |
 | `tests/test_llm.py` | Done |
 | `tests/test_embeddings.py` | Done |
@@ -43,15 +45,17 @@
 | `tests/test_scoring/` | Done (15 tests) |
 | `tests/test_slicing/` | Done (16 tests) |
 | `tests/test_coverage/test_detector.py` | Done (6 tests) |
-| `tests/test_report.py` | Done (15 tests) |
-| `tests/test_analyzer.py` | Done (29 tests) |
-| `README.md` | Done (full API docs, scoring modes, examples) |
+| `tests/test_comparison/test_statistics.py` | Done (11 tests) |
+| `tests/test_report.py` | Done (32 tests, incl. comparison formatting) |
+| `tests/test_analyzer.py` | Done (41 tests, incl. `TestCompareModels`) |
+| `README.md` | Done (full API docs, scoring modes, examples, model comparison) |
 | `examples/example_mode1_custom_scores.py` | Done |
 | `examples/example_mode2_reference_based.py` | Done |
 | `examples/example_mode3_reference_free.py` | Done |
 | `examples/example_coverage_audit.py` | Done |
+| `examples/example_model_comparison.py` | Done |
 
-**Total: 115 tests, all passing.**
+**Total: 190 tests, all passing.**
 **Coverage: `analyzer.py` 100%, `report.py` 100%.**
 
 ### Remaining
@@ -62,12 +66,13 @@ Phase 7 (PLAN-07): pip install clean install verification (manual step).
 
 ### conftest.py shared fixtures
 
-Three categories of reusable fixtures now available to all tests:
+Four categories of reusable fixtures now available to all tests:
 
 - **`MockEmbedder`** — deterministic hash-based embedder, `DIM=64`, no model downloads
 - **`mock_llm_client`** — `AsyncMock` with canned `"Name: Test Cluster\nDescription: ..."` response
 - **`make_clustered_data(n_clusters, n_per_cluster, ...)`** — well-separated cluster embeddings with controllable failure scores; use `failure_clusters=[0]` to inject a known failure pattern
 - **`make_coverage_data(n_test, n_prod_covered, n_prod_gap, ...)`** — test + production embeddings in region A (covered) and region B (gap)
+- **`make_comparison_data(n_clusters, n_per_cluster, a_better_clusters, b_better_clusters, ...)`** — paired scores for two models with known per-cluster winners
 - Fixtures `clustered_data`, `small_clustered_data`, `coverage_data` expose the generators as ready-to-use pytest fixtures
 
 ### Implementation note — `test_cluster_failure_rate.__test__ = False`
@@ -104,8 +109,10 @@ All implementation-ready code lives in segmented plan files in the repo root:
 ```
 User API (sync)
     └── SliceAnalyzer
-         ├── analyze() ──→ Score → Embed → Cluster → Test → Correct → Name → Report
-         └── audit_coverage() ──→ Embed → NN Distance → Cluster Gaps → Name → Report
+         ├── analyze() ──────────→ Score → Embed → Cluster → Test → Correct → Name → Report
+         ├── audit_coverage() ───→ Embed → NN Distance → Cluster Gaps → Name → Report
+         └── compare_models() ───→ Score A+B → Global McNemar → Embed → Cluster →
+                                   Per-Slice McNemar → BH Correct → Name → ComparisonReport
 
 Internal (async)
     ├── llm.py          ← litellm wrapper (rate-limited async)
@@ -113,6 +120,7 @@ Internal (async)
     ├── scoring/        ← 3 modes: precomputed, reference, entropy
     ├── slicing/        ← clustering + statistical tests + BH correction
     ├── coverage/       ← NN-based gap detection
+    ├── comparison/     ← McNemar's test + exact binomial + BH correction for paired data
     ├── labeling.py     ← shared LLM cluster naming
     └── report.py       ← plain text + optional rich formatting
 ```
@@ -123,7 +131,7 @@ Internal (async)
 - **Mode 2** (reference-based): user passes `references=` list — cosine sim scoring
 - **Mode 3** (entropy/autonomous): neither passed — semantic entropy + self-consistency via LLM sampling
 
-Mode detection in `analyzer.py`:
+Mode detection in `analyzer.py` (same logic for both `analyze()` and `compare_models()`):
 - `scores` provided → Mode 1
 - `references` provided → Mode 2
 - neither → Mode 3
@@ -242,6 +250,13 @@ report = analyzer.analyze(prompts, responses, references=refs)   # Mode 2
 report = analyzer.analyze(prompts, responses)                     # Mode 3
 
 coverage = analyzer.audit_coverage(test_prompts, production_prompts)
+
+comparison = analyzer.compare_models(
+    prompts, responses_a, responses_b,
+    scores_a=scores_a, scores_b=scores_b,   # Mode 1
+    model_a_name="GPT-4o", model_b_name="GPT-4o-mini",
+)
+# Also supports Mode 2 (references=) and Mode 3 (neither)
 ```
 
 `print(report)` must produce readable output. `report.to_dict()` must return JSON-serializable dict.

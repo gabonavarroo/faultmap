@@ -16,10 +16,11 @@ Your eval says **85% accuracy**. Users are complaining. Where are the failures?
 
 Aggregate metrics hide critical patterns. A model can score well overall while catastrophically failing on specific input types — legal questions, billing disputes, technical setup — that matter most to your users.
 
-**faultmap** is the diagnostic layer that answers two questions:
+**faultmap** is the diagnostic layer that answers three questions:
 
 1. **"Where exactly is my model failing?"** — Automated discovery of input slices where failure rate is statistically significantly higher than baseline.
 2. **"Can I trust my test suite?"** — Embedding-space coverage analysis that finds semantic blind spots your test suite has never touched.
+3. **"Which model is better, and where?"** — Paired statistical comparison of two models on the same prompt set, with per-slice winners and effect sizes.
 
 ---
 
@@ -122,6 +123,23 @@ coverage = analyzer.audit_coverage(
     production_prompts=my_production_logs,
 )
 print(coverage)
+```
+
+### Model Comparison
+
+Compare two models on the same prompt set to find where each model wins.
+
+```python
+comparison = analyzer.compare_models(
+    prompts=prompts,
+    responses_a=gpt4_responses,
+    responses_b=gpt4mini_responses,
+    scores_a=gpt4_scores,        # Mode 1: pre-computed scores
+    scores_b=gpt4mini_scores,
+    model_a_name="GPT-4o",
+    model_b_name="GPT-4o-mini",
+)
+print(comparison)
 ```
 
 ---
@@ -233,6 +251,51 @@ report: CoverageReport = analyzer.audit_coverage(
 )
 ```
 
+### `compare_models()`
+
+```python
+report: ComparisonReport = analyzer.compare_models(
+    prompts: list[str],
+    responses_a: list[str],
+    responses_b: list[str],
+    scores_a: list[float] | None = None,     # Mode 1: pre-computed scores for A
+    scores_b: list[float] | None = None,     # Mode 1: pre-computed scores for B
+    references: list[str] | None = None,     # Mode 2: shared ground-truth answers
+    # Neither scores nor references → Mode 3 (entropy scoring for each model)
+    model_a_name: str = "Model A",
+    model_b_name: str = "Model B",
+)
+```
+
+Same mode detection as `analyze()`:
+- `scores_a` + `scores_b` provided → Mode 1 (must both be present or neither)
+- `references` provided (no scores) → Mode 2
+- Neither → Mode 3 (2× API calls — each model scored independently)
+
+### Reading `ComparisonReport`
+
+```python
+# Global headline
+print(comparison.global_winner)         # "a", "b", or "tie"
+print(comparison.global_advantage_rate) # 0.78 → "78% of disagreements favor A"
+print(comparison.global_p_value)        # 0.0001
+
+# Per-slice breakdown
+for s in comparison.slices:
+    print(s.name)               # "Legal Compliance"
+    print(s.winner)             # "a" — GPT-4o wins this slice
+    print(s.failure_rate_a)     # 0.044
+    print(s.failure_rate_b)     # 0.422
+    print(s.advantage_rate)     # 0.947 — 94.7% of disagreements favor A here
+    print(s.discordant_a_wins)  # 18 — A passes, B fails
+    print(s.discordant_b_wins)  # 1  — A fails, B passes
+    print(s.adjusted_p_value)   # 0.0002
+
+# Export
+import json
+json.dumps(comparison.to_dict())
+```
+
 ---
 
 ## Scoring Modes In Depth
@@ -330,6 +393,25 @@ faultmap uses **one-sided hypothesis testing** — it only flags clusters that f
 
 **No external statistics libraries**: chi-squared p-values are computed via `math.erfc(sqrt(chi2/2))` (exact for df=1), Fisher exact via `math.lgamma` to avoid overflow. Zero scipy/statsmodels dependency.
 
+### Model Comparison Statistics
+
+`compare_models()` uses **McNemar's test** — the standard test for paired binary data.
+
+Each prompt produces two binary outcomes (A pass/fail, B pass/fail). Only **discordant pairs** carry information:
+- `b` = A passes, B fails ("A wins")
+- `c` = A fails, B passes ("B wins")
+
+**Test selection**:
+- `b + c >= 25` → chi-squared with continuity correction: `(|b-c|-1)² / (b+c)`
+- `b + c < 25` → exact binomial two-sided test via `math.lgamma`
+- `b + c == 0` → p=1.0, winner="tie" (models agree everywhere)
+
+**Effect size**: `advantage_rate = b / (b+c)` — the proportion of disagreements where A wins. Intuitive and actionable: "78% of the time the models disagree, GPT-4o gives the better answer."
+
+**Winner determination**: `adjusted_p < significance_level` AND `advantage_rate > 0.5` → A wins; `advantage_rate < 0.5` → B wins; otherwise tie.
+
+Multiple comparisons corrected with Benjamini-Hochberg FDR across all per-slice tests.
+
 ---
 
 ## Logging
@@ -371,6 +453,7 @@ See the [`examples/`](examples/) directory:
 - [`example_mode2_reference_based.py`](examples/example_mode2_reference_based.py) — Mode 2 with ground-truth references
 - [`example_mode3_reference_free.py`](examples/example_mode3_reference_free.py) — Mode 3 autonomous entropy scoring
 - [`example_coverage_audit.py`](examples/example_coverage_audit.py) — Coverage gap detection
+- [`example_model_comparison.py`](examples/example_model_comparison.py) — Model comparison with per-slice winners
 
 ---
 
