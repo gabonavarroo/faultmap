@@ -34,15 +34,48 @@ def _make_mock_embedder():
     embedder = MagicMock()
     embedder.dimension = 64
 
-    def mock_embed(texts):
+    def mock_embed(texts, *, usage="generic"):
         embs = []
         for t in texts:
-            seed = hash(t) % (2**31)
+            seed = hash((t, usage)) % (2**31)
             rng = np.random.default_rng(seed)
             embs.append(rng.standard_normal(64))
         return np.array(embs, dtype=np.float32)
 
     embedder.embed = mock_embed
+    embedder.embed_queries = MagicMock(side_effect=lambda texts: mock_embed(texts, usage="query"))
+    embedder.embed_documents = MagicMock(
+        side_effect=lambda texts: mock_embed(texts, usage="document")
+    )
+    return embedder
+
+
+def _make_cluster_routing_embedder(query_embeddings, document_dim=64):
+    """
+    Embedder with deterministic, precomputed query embeddings for clustering tests.
+
+    Query texts get the supplied embeddings in call order so analyzer tests still
+    exercise real clustering with stable geometry. Document embeddings remain
+    deterministic and usage-aware for call assertions.
+    """
+    embedder = MagicMock()
+    embedder.dimension = query_embeddings.shape[1]
+
+    def mock_documents(texts, *, usage="document"):
+        embs = []
+        for t in texts:
+            seed = hash((t, usage)) % (2**31)
+            rng = np.random.default_rng(seed)
+            embs.append(rng.standard_normal(document_dim))
+        return np.array(embs, dtype=np.float32)
+
+    embedder.embed = MagicMock(
+        side_effect=lambda texts, usage="generic": mock_documents(texts, usage=usage)
+    )
+    embedder.embed_queries = MagicMock(return_value=np.asarray(query_embeddings, dtype=np.float32))
+    embedder.embed_documents = MagicMock(
+        side_effect=lambda texts: mock_documents(texts, usage="document")
+    )
     return embedder
 
 
@@ -85,7 +118,13 @@ class TestSliceAnalyzerConfig:
             analyzer = SliceAnalyzer()
 
         assert analyzer.embedding_model == "text-embedding-3-small"
-        mock_get_embedder.assert_called_once_with("text-embedding-3-small")
+        assert analyzer.embedding_max_text_chars == 2000
+        mock_get_embedder.assert_called_once_with(
+            "text-embedding-3-small",
+            api_max_text_chars=2000,
+            api_request_kwargs=None,
+            api_usage_request_kwargs=None,
+        )
 
     def test_invalid_clustering_method(self):
         with pytest.raises(ConfigurationError):
@@ -122,6 +161,9 @@ class TestSliceAnalyzerConfig:
             analyzer = SliceAnalyzer(
                 model="gpt-test",
                 embedding_model="all-MiniLM-L6-v2",
+                embedding_max_text_chars=1500,
+                embedding_request_kwargs={"truncate": "END"},
+                embedding_usage_kwargs={"query": {"input_type": "query"}},
                 significance_level=0.1,
                 min_slice_size=15,
                 failure_threshold=0.4,
@@ -133,6 +175,9 @@ class TestSliceAnalyzerConfig:
             )
 
         assert analyzer.model == "gpt-test"
+        assert analyzer.embedding_max_text_chars == 1500
+        assert analyzer.embedding_request_kwargs == {"truncate": "END"}
+        assert analyzer.embedding_usage_kwargs == {"query": {"input_type": "query"}}
         assert analyzer.significance_level == 0.1
         assert analyzer.min_slice_size == 15
         assert analyzer.failure_threshold == 0.4
@@ -140,7 +185,12 @@ class TestSliceAnalyzerConfig:
         assert analyzer.clustering_method == "agglomerative"
         assert analyzer.temperature == 0.5
         assert analyzer.consistency_threshold == 0.7
-        mock_get_embedder.assert_called_once_with("all-MiniLM-L6-v2")
+        mock_get_embedder.assert_called_once_with(
+            "all-MiniLM-L6-v2",
+            api_max_text_chars=1500,
+            api_request_kwargs={"truncate": "END"},
+            api_usage_request_kwargs={"query": {"input_type": "query"}},
+        )
         mock_llm_cls.assert_called_once_with(
             model="gpt-test", max_concurrent_requests=10
         )
@@ -190,6 +240,31 @@ class TestAnalyzeMode1:
         assert report.total_prompts == n
         assert report.clustering_method == "hdbscan"
         assert report.embedding_model == "mock"
+
+    def test_prompt_clustering_uses_query_embeddings(self):
+        n_clusters = 3
+        n_per = 12
+        prompts = [f"prompt-{c}-{i}" for c in range(n_clusters) for i in range(n_per)]
+        responses = [f"response-{i}" for i in range(len(prompts))]
+        scores = [
+            0.2 if c == 0 else 0.8
+            for c in range(n_clusters)
+            for _ in range(n_per)
+        ]
+        query_embeddings = _make_clustered_embeddings(
+            n_clusters=n_clusters,
+            n_per_cluster=n_per,
+            seed=123,
+        )
+        embedder = _make_cluster_routing_embedder(query_embeddings)
+        analyzer = _make_analyzer(embedder)
+
+        report = analyzer.analyze(prompts, responses, scores=scores)
+
+        embedder.embed_queries.assert_called_once_with(prompts)
+        embedder.embed_documents.assert_not_called()
+        assert report.total_prompts == len(prompts)
+        assert report.num_clusters_tested >= 1
 
 
 class TestAnalyzeMode2:
@@ -297,7 +372,7 @@ class TestAnalyzeFullPipeline:
 
         embedder = MagicMock()
         embedder.dimension = 64
-        embedder.embed = MagicMock(return_value=embeddings)
+        embedder.embed_queries = MagicMock(return_value=embeddings)
 
         analyzer = _make_analyzer(embedder)
         return analyzer, prompts, responses, scores
@@ -375,7 +450,7 @@ class TestAnalyzeFullPipeline:
 
         embedder = MagicMock()
         embedder.dimension = 64
-        embedder.embed = MagicMock(return_value=all_embs)
+        embedder.embed_queries = MagicMock(return_value=all_embs)
 
         analyzer = _make_analyzer(embedder)
         # Should not raise — noise label removal is handled transparently
@@ -444,7 +519,7 @@ class TestAuditCoverage:
 
         embedder = MagicMock()
         embedder.dimension = 64
-        embedder.embed.side_effect = [test_embs, prod_embs]
+        embedder.embed_queries = MagicMock(side_effect=[test_embs, prod_embs])
 
         analyzer = _make_analyzer(embedder)
         report = analyzer.audit_coverage(
@@ -470,7 +545,7 @@ class TestAuditCoverage:
 
         embedder = MagicMock()
         embedder.dimension = 64
-        embedder.embed.side_effect = [test_embs, prod_embs]
+        embedder.embed_queries = MagicMock(side_effect=[test_embs, prod_embs])
 
         analyzer = _make_analyzer(embedder)
         report = analyzer.audit_coverage(
@@ -500,7 +575,7 @@ class TestAuditCoverage:
 
         embedder = MagicMock()
         embedder.dimension = 64
-        embedder.embed.side_effect = [test_embs, prod_embs]
+        embedder.embed_queries = MagicMock(side_effect=[test_embs, prod_embs])
 
         analyzer = _make_analyzer(embedder)
         report = analyzer.audit_coverage(
@@ -524,7 +599,7 @@ class TestAuditCoverage:
 
         embedder = MagicMock()
         embedder.dimension = 64
-        embedder.embed.side_effect = [test_embs, prod_embs]
+        embedder.embed_queries = MagicMock(side_effect=[test_embs, prod_embs])
 
         analyzer = _make_analyzer(embedder)
         with patch("faultmap.coverage.detector.cluster_embeddings") as mock_cluster:
@@ -546,7 +621,7 @@ class TestAuditCoverage:
         n_test, n_prod = len(test_embs), len(prod_embs)
 
         embedder = MagicMock()
-        embedder.embed.side_effect = [test_embs, prod_embs]
+        embedder.embed_queries = MagicMock(side_effect=[test_embs, prod_embs])
 
         analyzer = _make_analyzer(embedder)
         report = analyzer.audit_coverage(
@@ -559,6 +634,19 @@ class TestAuditCoverage:
         assert "gaps" in d
         assert "overall_coverage_score" in d
         assert "metadata" in d
+
+    def test_coverage_uses_query_embeddings_for_both_inputs(self):
+        test_embs, prod_embs = _make_coverage_embeddings()
+        embedder = MagicMock()
+        embedder.embed_queries = MagicMock(side_effect=[test_embs, prod_embs])
+        analyzer = _make_analyzer(embedder)
+        test_prompts = [f"t-{i}" for i in range(len(test_embs))]
+        prod_prompts = [f"p-{i}" for i in range(len(prod_embs))]
+
+        analyzer.audit_coverage(test_prompts, prod_prompts, distance_threshold=1000.0)
+
+        assert embedder.embed_queries.call_args_list[0].args == (test_prompts,)
+        assert embedder.embed_queries.call_args_list[1].args == (prod_prompts,)
 
 
 # ── Report serialization ──────────────────────────────────

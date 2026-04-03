@@ -72,7 +72,7 @@ class EntropyScorer(BaseScorer):
         flat_samples = [resp for group in sampled_responses for resp in group]
         all_texts_to_embed = flat_samples + list(responses)
 
-        all_embeddings = self._embedder.embed(all_texts_to_embed)
+        all_embeddings = self._embedder.embed_documents(all_texts_to_embed)
 
         # Split back out
         sample_embeddings_flat = all_embeddings[: n * self.n_samples]

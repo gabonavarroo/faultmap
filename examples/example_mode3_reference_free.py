@@ -101,6 +101,10 @@ responses = [
 # ---------------------------------------------------------------------------
 
 analyzer = SliceAnalyzer(
+    # model="nvidia_nim/meta/llama-3.3-70b-instruct",
+    # embedding_model="nvidia_nim/nvidia/nv-embedqa-e5-v5",
+    # Optional for asymmetric embedding APIs. Symmetric models can omit this.
+    # embedding_usage_kwargs={"query": {"input_type": "query"}},
     model="gpt-4o-mini",
     embedding_model="text-embedding-3-small",
     n_samples=6,           # sample 6 additional responses per prompt
@@ -116,6 +120,7 @@ print(f"Expected API calls: {len(prompts)} prompts × {analyzer.n_samples} sampl
       f"= {len(prompts) * analyzer.n_samples} calls for scoring\n")
 
 report = analyzer.analyze(prompts, responses)
+# report = analyzer.analyze(prompts[:3], responses[:3])  # smaller dev run
 # No scores or references — Mode 3 is triggered automatically
 
 print(report)

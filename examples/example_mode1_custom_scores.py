@@ -39,6 +39,10 @@ scores = [0.2] * 30 + [0.85] * 30 + [0.90] * 30
 # ---------------------------------------------------------------------------
 
 analyzer = SliceAnalyzer(
+    # model="nvidia_nim/meta/llama-3.3-70b-instruct",
+    # embedding_model="nvidia_nim/nvidia/nv-embedqa-e5-v5",
+    # # Optional for asymmetric embedding APIs. Symmetric models can omit this.
+    # embedding_usage_kwargs={"query": {"input_type": "query"}},
     model="gpt-4o-mini",
     embedding_model="text-embedding-3-small",
     min_slice_size=10,

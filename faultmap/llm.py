@@ -22,7 +22,7 @@ class AsyncLLMClient:
         self,
         model: str,
         max_concurrent_requests: int = 50,
-        max_retries: int = 3,
+        max_retries: int = 10,
         timeout: float = 60.0,
     ) -> None:
         self.model = model
@@ -54,6 +54,7 @@ class AsyncLLMClient:
         - Timeout → handled by backoff
         """
         import litellm
+        litellm.telemetry = False
 
         last_error: Exception | None = None
         async with self._semaphore:
