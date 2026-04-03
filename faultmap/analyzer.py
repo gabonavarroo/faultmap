@@ -15,8 +15,8 @@ from .models import (
     CoverageGap,
     CoverageReport,
     FailureSlice,
-    SliceComparison,
     ScoringResult,
+    SliceComparison,
 )
 from .utils import run_sync, validate_comparison_inputs, validate_inputs
 

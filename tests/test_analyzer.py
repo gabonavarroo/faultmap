@@ -762,7 +762,13 @@ class TestCompareModels:
             assert s.advantage_rate == pytest.approx(
                 s.discordant_a_wins / (s.discordant_a_wins + s.discordant_b_wins)
             )
-            assert s.concordant_pass + s.concordant_fail + s.discordant_a_wins + s.discordant_b_wins == s.size
+            assert (
+                s.concordant_pass
+                + s.concordant_fail
+                + s.discordant_a_wins
+                + s.discordant_b_wins
+                == s.size
+            )
             assert s.adjusted_p_value < 0.05
             assert s.winner in ("a", "b", "tie")
             assert isinstance(s.sample_indices, list)

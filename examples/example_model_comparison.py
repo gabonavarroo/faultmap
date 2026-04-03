@@ -22,8 +22,20 @@ from faultmap import SliceAnalyzer
 # ---------------------------------------------------------------------------
 
 legal_topics = ["GDPR", "HIPAA", "SOC2", "PCI-DSS", "CCPA"]
-billing_topics = ["double charge", "failed payment", "refund request", "invoice error", "subscription cancel"]
-tech_topics = ["SSO setup", "webhook configuration", "API key rotation", "SAML integration", "OAuth flow"]
+billing_topics = [
+    "double charge",
+    "failed payment",
+    "refund request",
+    "invoice error",
+    "subscription cancel",
+]
+tech_topics = [
+    "SSO setup",
+    "webhook configuration",
+    "API key rotation",
+    "SAML integration",
+    "OAuth flow",
+]
 
 prompts = (
     [f"What are the compliance requirements for {t}?" for t in legal_topics * 6]
@@ -128,7 +140,6 @@ if not a_slices and not b_slices:
     print("No statistically significant per-slice differences — models are equivalent.")
 
 # Export to JSON
-import json
 comparison_json = comparison.to_dict()
 print(f"\nJSON keys: {list(comparison_json.keys())}")
 # json.dumps(comparison_json)  # fully serializable
