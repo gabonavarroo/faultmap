@@ -21,7 +21,8 @@ def _make_analyzer(embedder):
     analyzer._embedder = embedder
     analyzer._llm_client = AsyncMock()
     analyzer._llm_client.complete.return_value = (
-        "Name: Test Slice\nDescription: Test description"
+        "Name: Test Slice\nDescription: Test description\n"
+        "Root Cause: Test root cause\nSuggested Fix: Test fix"
     )
     analyzer.n_samples = 8
     analyzer.temperature = 1.0
@@ -408,6 +409,8 @@ class TestAnalyzeFullPipeline:
         assert worst.effect_size > 1.0
         assert worst.name == "Test Slice"
         assert worst.description == "Test description"
+        assert worst.root_cause == "Test root cause"
+        assert worst.suggested_remediation == "Test fix"
         assert len(worst.examples) > 0
         assert len(worst.representative_prompts) > 0
 

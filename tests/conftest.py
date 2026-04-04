@@ -48,7 +48,9 @@ def mock_llm_client():
     """AsyncLLMClient mock that returns canned naming responses."""
     client = AsyncMock(spec=AsyncLLMClient)
     client.complete.return_value = (
-        "Name: Test Cluster\nDescription: A test cluster of similar prompts."
+        "Name: Test Cluster\nDescription: A test cluster of similar prompts.\n"
+        "Root Cause: The model lacks domain knowledge.\n"
+        "Suggested Fix: Add domain context to the system prompt."
     )
     client.complete_batch.return_value = []
     return client

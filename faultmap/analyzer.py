@@ -389,6 +389,8 @@ class SliceAnalyzer:
                 examples=examples,
                 representative_prompts=rep_texts[:5],
                 cluster_id=r.cluster_id,
+                root_cause=label.root_cause,
+                suggested_remediation=label.suggested_remediation,
             ))
 
         report = AnalysisReport(

@@ -26,8 +26,7 @@ Aggregate metrics hide critical patterns. A model can score well overall while c
 
 ## See It In Action
 
-<!-- Replace the line below with your recorded GIF once you have one:
-     ![faultmap 3D embedding visualization](docs/assets/visualization_demo.gif) -->
+![faultmap 3D embedding visualization](docs/assets/faultmap_demo.gif)
 > **[▶ Interactive visualization demo →](notebooks/visualization_demo.ipynb)**
 
 Each **red cluster** is a _Failure Slice_ — a group of semantically similar prompts where your LLM fails disproportionately often. UMAP reduces 1 536-D prompt embeddings to 3D so you can see exactly where reliability breaks down, then faultmap runs statistical hypothesis testing to tell you which clusters are significant and by how much.
@@ -179,6 +178,10 @@ for s in report.slices:
     print(s.effect_size)      # 4.2   (how many times worse than baseline)
     print(s.adjusted_p_value) # 0.0003
     print(s.test_used)        # "chi2"
+
+    # Actionable insights (why it fails + how to fix it)
+    print(s.root_cause)             # "Model lacks context for regulatory terminology..."
+    print(s.suggested_remediation)  # "Add: 'You are a compliance expert...'"
 
     # Recover the original data
     print(s.sample_indices)   # [12, 45, 67, ...]  — indices into your prompts list
