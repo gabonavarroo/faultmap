@@ -78,3 +78,26 @@ for s in report.slices:
 
 print(f"\nBaseline failure rate: {report.baseline_failure_rate:.1%}")
 print(f"Total failures: {report.total_failures}/{report.total_prompts}")
+
+# ---------------------------------------------------------------------------
+# Next step: Compare against another model
+# ---------------------------------------------------------------------------
+# If you have scores from a second model on the same prompts, you can follow
+# up with a paired comparison to find which model wins on each failure slice:
+#
+# scores_b = [...]      # scores from Model B on the same prompts
+# responses_b = [...]   # responses from Model B
+#
+# comparison = analyzer.compare_models(
+#     prompts, responses, responses_b,
+#     scores_a=scores, scores_b=scores_b,
+#     model_a_name="Current Model", model_b_name="Candidate Model",
+# )
+# print(comparison)
+#
+# comparison.global_winner         # "a", "b", or "tie"
+# comparison.global_advantage_rate # fraction of disagreements favoring A
+# for s in comparison.slices:
+#     print(s.name, s.winner, s.advantage_rate)
+#
+# See examples/example_model_comparison.py for a full walkthrough.

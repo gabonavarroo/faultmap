@@ -41,6 +41,35 @@ inputs: test_prompts, production_prompts
 9. RETURN          CoverageReport(gaps sorted by mean_distance desc)
 ```
 
+## compare_models() Pipeline
+
+```
+inputs: prompts, responses_a, responses_b
+        + one of: scores_a+scores_b | references | neither
+
+ 1. VALIDATE       validate_comparison_inputs() → ConfigurationError if invalid
+ 2. MODE DETECT    scores_a+b → Mode 1 | references → Mode 2 | neither → Mode 3
+ 3. SCORE A        scorer.score(prompts, responses_a) → ScoringResult
+ 4. SCORE B        scorer.score(prompts, responses_b) → ScoringResult
+ 5. BINARIZE       failures_a = scores_a < threshold; failures_b = scores_b < threshold
+ 6. GLOBAL TEST    test_mcnemar(global b_count, c_count) → global p-value, winner
+ 7. EMBED          embedder.embed_queries(prompts) → (N, D)  [once, shared]
+ 8. CLUSTER        cluster_embeddings() → labels (N,)
+ 9. PER-SLICE TEST for each cluster: test_mcnemar(slice b, slice c) → ComparisonTestResult
+10. BH CORRECT     benjamini_hochberg_comparison() → adjusted p-values
+11. FILTER         keep adjusted_p < significance_level
+12. NAME           label_clusters() for significant slices
+13. ASSEMBLE       SliceComparison objects
+14. RETURN         ComparisonReport(slices sorted by adjusted_p_value asc)
+```
+
+Key design decisions:
+- Prompts are shared → embeddings computed **once**, clustering done **once**; both models evaluated on the same slices
+- Global test (step 6) always runs — users get a headline answer even if no slice reaches significance
+- McNemar's test operates on discordant pairs only: `b` = A pass / B fail, `c` = A fail / B pass
+- `b + c >= 25` → chi-squared approximation; `b + c < 25` → exact binomial (stdlib only, no scipy)
+- Advantage rate = `b / (b + c)` — proportion of disagreements where A wins (0.5 = tied)
+
 ---
 
 ## Module Contracts
@@ -126,6 +155,30 @@ enforce monotonicity: backward cummin
 clip to [0, 1]
 ```
 
+### `comparison/statistics.py`
+
+```
+McNemar's test for paired binary data:
+
+       Model B Pass  Model B Fail
+Model A Pass:   a         b       (b = discordant A-wins)
+Model A Fail:   c         d       (c = discordant B-wins)
+
+if b + c == 0: p=1.0, test_used="none", winner="tie"
+if b + c < 25: exact binomial two-sided via lgamma
+else:          chi-squared = (|b-c|-1)^2 / (b+c)  [continuity correction]
+               p = erfc(sqrt(chi2/2))
+
+advantage_rate = b / (b+c)  [0.5 if no discordant pairs]
+winner: adjusted_p < alpha and rate > 0.5 → "a"
+        adjusted_p < alpha and rate < 0.5 → "b"
+        otherwise → "tie"
+```
+
+Benjamini-Hochberg for `ComparisonTestResult` objects — parallel to the
+existing `benjamini_hochberg()` in `slicing/statistics.py` but operates on
+`ComparisonTestResult` rather than `ClusterTestResult` (keeps types separate).
+
 ### `coverage/detector.py`
 
 ```python
@@ -178,6 +231,34 @@ CoverageReport(
     distance_threshold, embedding_model, metadata,
 )
 → same __str__, summary(), to_dict() pattern
+
+SliceComparison(
+    name, description,
+    size,
+    failure_rate_a, failure_rate_b, failure_rate_diff,
+    concordant_pass, concordant_fail,
+    discordant_a_wins,        # b: A passes, B fails
+    discordant_b_wins,        # c: A fails, B passes
+    advantage_rate,           # b / (b+c), 0.5 if no discordant
+    p_value, adjusted_p_value, test_used,
+    winner,                   # "a" | "b" | "tie"
+    sample_indices,
+    examples,                 # top-5 discordant pairs: {prompt, response_a, response_b, score_a, score_b}
+    representative_prompts,
+    cluster_id,
+)
+
+ComparisonReport(
+    slices,                   # sorted by adjusted_p_value asc
+    total_prompts,
+    model_a_name, model_b_name,
+    failure_rate_a, failure_rate_b,
+    global_p_value, global_test_used, global_winner, global_advantage_rate,
+    significance_level, failure_threshold, scoring_mode,
+    num_clusters_tested, num_significant, clustering_method, embedding_model,
+    metadata,
+)
+→ same __str__, summary(), to_dict() pattern
 ```
 
 ---
@@ -222,12 +303,14 @@ Test used:     chi2
 ## Testing Fixtures (conftest.py)
 
 ```python
-MockEmbedder       # deterministic hash-based embeddings, no model download, DIM=64
-mock_llm_client    # AsyncMock returning "Name: Test Cluster\nDescription: ..."
-clustered_data     # 3 clusters × 30 prompts, cluster 0 fails (score=0.2), others pass (0.8)
+MockEmbedder          # deterministic hash-based embeddings, no model download, DIM=64
+mock_llm_client       # AsyncMock returning "Name: Test Cluster\nDescription: ..."
+clustered_data        # 3 clusters × 30 prompts, cluster 0 fails (score=0.2), others pass (0.8)
 small_clustered_data  # 2 clusters × 15 prompts
-coverage_data      # test in region A, prod in A (covered) + B (gap)
+coverage_data         # test in region A, prod in A (covered) + B (gap)
+comparison_data       # 3 clusters × 30 prompts: cluster 0 A wins, cluster 1 B wins, cluster 2 tied
 ```
 
 `make_clustered_data(n_clusters, n_per_cluster, dim, failure_clusters, failure_score, pass_score, seed)`
 `make_coverage_data(n_test, n_prod_covered, n_prod_gap, dim, seed)`
+`make_comparison_data(n_clusters, n_per_cluster, dim, a_better_clusters, b_better_clusters, ...)`

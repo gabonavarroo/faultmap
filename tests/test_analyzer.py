@@ -667,3 +667,272 @@ class TestReportSerializable:
         text = str(report)
         assert isinstance(text, str)
         assert len(text) > 0
+
+
+# ── compare_models ────────────────────────────────────────
+
+
+class TestCompareModels:
+    """Integration tests for SliceAnalyzer.compare_models()."""
+
+    def _make_comparison_analyzer(
+        self,
+        a_better_clusters: list[int],
+        b_better_clusters: list[int],
+        n_clusters: int = 3,
+        n_per: int = 30,
+    ):
+        """
+        Build an analyzer + data where designated clusters have clear per-model winners.
+
+        a_better_clusters: A passes (0.8), B fails (0.2).
+        b_better_clusters: A fails (0.2), B passes (0.8).
+        Remaining clusters: both pass (0.8, 0.8) — tied.
+        """
+        embeddings = _make_clustered_embeddings(n_clusters, n_per)
+
+        topics = ["legal", "billing", "technical", "general", "feedback", "account"]
+        prompts, responses_a, responses_b, scores_a, scores_b = [], [], [], [], []
+        for c in range(n_clusters):
+            topic = topics[c % len(topics)]
+            for j in range(n_per):
+                prompts.append(f"[{topic}] prompt {c}-{j}")
+                responses_a.append(f"model-a response {c}-{j}")
+                responses_b.append(f"model-b response {c}-{j}")
+                if c in a_better_clusters:
+                    scores_a.append(0.8)
+                    scores_b.append(0.2)
+                elif c in b_better_clusters:
+                    scores_a.append(0.2)
+                    scores_b.append(0.8)
+                else:
+                    scores_a.append(0.8)
+                    scores_b.append(0.8)
+
+        embedder = MagicMock()
+        embedder.dimension = 64
+        embedder.embed_queries = MagicMock(return_value=embeddings)
+
+        analyzer = _make_analyzer(embedder)
+        return analyzer, prompts, responses_a, responses_b, scores_a, scores_b
+
+    def test_compare_mode1_a_wins_globally(self):
+        """A wins in 2 clusters, B wins in 1 → globally A wins."""
+        analyzer, prompts, ra, rb, sa, sb = self._make_comparison_analyzer(
+            a_better_clusters=[0, 2], b_better_clusters=[1]
+        )
+        report = analyzer.compare_models(
+            prompts, ra, rb,
+            scores_a=sa, scores_b=sb,
+            model_a_name="GPT-4o", model_b_name="GPT-4o-mini",
+        )
+
+        assert report.scoring_mode == "precomputed"
+        assert report.total_prompts == 90
+        assert report.model_a_name == "GPT-4o"
+        assert report.model_b_name == "GPT-4o-mini"
+        # Globally: b=60 (A wins), c=30 (B wins) → advantage_rate ≈ 0.67 → A wins
+        assert report.global_winner == "a"
+        assert report.global_advantage_rate > 0.5
+
+    def test_compare_mode1_per_slice_winners(self):
+        """Cluster 0: A wins; cluster 1: B wins; cluster 2: tied → ≥2 significant."""
+        analyzer, prompts, ra, rb, sa, sb = self._make_comparison_analyzer(
+            a_better_clusters=[0], b_better_clusters=[1]
+        )
+        report = analyzer.compare_models(prompts, ra, rb, scores_a=sa, scores_b=sb)
+
+        assert report.num_significant >= 2
+        winners = {s.winner for s in report.slices}
+        assert "a" in winners
+        assert "b" in winners
+
+    def test_compare_mode1_slices_have_correct_fields(self):
+        """Significant SliceComparison objects carry all expected attributes."""
+        analyzer, prompts, ra, rb, sa, sb = self._make_comparison_analyzer(
+            a_better_clusters=[0], b_better_clusters=[1]
+        )
+        report = analyzer.compare_models(prompts, ra, rb, scores_a=sa, scores_b=sb)
+
+        assert report.num_significant >= 1
+        for s in report.slices:
+            assert s.size > 0
+            assert 0.0 <= s.failure_rate_a <= 1.0
+            assert 0.0 <= s.failure_rate_b <= 1.0
+            assert s.advantage_rate == pytest.approx(
+                s.discordant_a_wins / (s.discordant_a_wins + s.discordant_b_wins)
+            )
+            assert (
+                s.concordant_pass
+                + s.concordant_fail
+                + s.discordant_a_wins
+                + s.discordant_b_wins
+                == s.size
+            )
+            assert s.adjusted_p_value < 0.05
+            assert s.winner in ("a", "b", "tie")
+            assert isinstance(s.sample_indices, list)
+            assert len(s.representative_prompts) > 0
+
+    def test_compare_mode1_tie(self):
+        """All prompts pass for both models → no discordant pairs → global tie, 0 slices."""
+        n = 90
+        prompts = [f"prompt-{i}" for i in range(n)]
+        ra = [f"ra-{i}" for i in range(n)]
+        rb = [f"rb-{i}" for i in range(n)]
+
+        embeddings = _make_clustered_embeddings(3, 30)
+        embedder = MagicMock()
+        embedder.embed_queries = MagicMock(return_value=embeddings)
+
+        analyzer = _make_analyzer(embedder)
+        report = analyzer.compare_models(
+            prompts, ra, rb,
+            scores_a=[0.8] * n, scores_b=[0.8] * n,  # identical → all concordant
+        )
+
+        assert report.num_significant == 0
+        assert len(report.slices) == 0
+        assert report.global_winner == "tie"
+
+    def test_compare_mode2_detected(self):
+        """references provided (no scores) → Mode 2 detected."""
+        n = 2
+        # Patch clustering so the pipeline doesn't fail on tiny input
+        null_labels = np.array([-1] * n)
+        analyzer = _make_analyzer(_make_mock_embedder())
+        mock_scorer = AsyncMock()
+        mock_scorer.score.return_value = ScoringResult(
+            scores=[0.9, 0.8], mode="reference"
+        )
+        with patch("faultmap.slicing.cluster_embeddings", return_value=null_labels), \
+             patch("faultmap.scoring.ReferenceScorer", return_value=mock_scorer):
+            report = analyzer.compare_models(
+                ["p1", "p2"], ["ra1", "ra2"], ["rb1", "rb2"],
+                references=["ref1", "ref2"],
+            )
+        assert report.scoring_mode == "reference"
+
+    def test_compare_mode3_detected(self):
+        """Neither scores nor references → Mode 3 detected."""
+        n = 2
+        null_labels = np.array([-1] * n)
+        analyzer = _make_analyzer(_make_mock_embedder())
+        mock_scorer = AsyncMock()
+        mock_scorer.score.return_value = ScoringResult(
+            scores=[0.9, 0.8], mode="entropy"
+        )
+        with patch("faultmap.slicing.cluster_embeddings", return_value=null_labels), \
+             patch("faultmap.scoring.EntropyScorer", return_value=mock_scorer):
+            report = analyzer.compare_models(
+                ["p1", "p2"], ["ra1", "ra2"], ["rb1", "rb2"],
+            )
+        assert report.scoring_mode == "entropy"
+
+    def test_compare_scores_and_references_warns(self):
+        """Both provided → Mode 1 wins with UserWarning."""
+        n = 2
+        null_labels = np.array([-1] * n)
+        analyzer = _make_analyzer(_make_mock_embedder())
+        with patch("faultmap.slicing.cluster_embeddings", return_value=null_labels), \
+             pytest.warns(UserWarning, match="Both scores and references"):
+            report = analyzer.compare_models(
+                ["a", "b"], ["ra", "rb"], ["rba", "rbb"],
+                scores_a=[0.9, 0.9], scores_b=[0.8, 0.8],
+                references=["ref-a", "ref-b"],
+            )
+        assert report.scoring_mode == "precomputed"
+
+    def test_compare_scores_a_without_b_raises(self):
+        """scores_a without scores_b → ConfigurationError."""
+        analyzer = _make_analyzer(_make_mock_embedder())
+        with pytest.raises(ConfigurationError):
+            analyzer.compare_models(
+                ["a"], ["ra"], ["rb"],
+                scores_a=[0.8],
+                # scores_b intentionally omitted
+            )
+
+    def test_compare_mismatched_lengths_raises(self):
+        """responses_a shorter than prompts → ConfigurationError."""
+        analyzer = _make_analyzer(_make_mock_embedder())
+        with pytest.raises(ConfigurationError):
+            analyzer.compare_models(
+                ["a", "b"], ["ra"],  # mismatched
+                ["rb1", "rb2"],
+                scores_a=[0.8, 0.9], scores_b=[0.7, 0.6],
+            )
+
+    def test_compare_report_to_dict_serializable(self):
+        """ComparisonReport.to_dict() returns a JSON-serializable dict."""
+        import json
+
+        n = 90
+        embeddings = _make_clustered_embeddings(3, 30)
+        embedder = MagicMock()
+        embedder.embed_queries = MagicMock(return_value=embeddings)
+
+        analyzer = _make_analyzer(embedder)
+        report = analyzer.compare_models(
+            [f"p-{i}" for i in range(n)],
+            [f"ra-{i}" for i in range(n)],
+            [f"rb-{i}" for i in range(n)],
+            scores_a=[0.8] * n, scores_b=[0.8] * n,
+        )
+        d = report.to_dict()
+        assert isinstance(d, dict)
+        assert "slices" in d
+        assert "total_prompts" in d
+        json.dumps(d)  # raises if not JSON-serializable
+
+    def test_compare_report_str(self):
+        """str(report) returns a non-empty string."""
+        analyzer, prompts, ra, rb, sa, sb = self._make_comparison_analyzer(
+            a_better_clusters=[], b_better_clusters=[]  # all tied → empty slices
+        )
+        report = analyzer.compare_models(prompts, ra, rb, scores_a=sa, scores_b=sb)
+        text = str(report)
+        assert isinstance(text, str)
+        assert len(text) > 0
+
+    def test_compare_report_summary(self):
+        """summary() returns a non-empty string."""
+        analyzer, prompts, ra, rb, sa, sb = self._make_comparison_analyzer(
+            a_better_clusters=[], b_better_clusters=[]  # all tied → empty slices
+        )
+        report = analyzer.compare_models(prompts, ra, rb, scores_a=sa, scores_b=sb)
+        summary = report.summary()
+        assert isinstance(summary, str)
+        assert len(summary) > 0
+
+    def test_compare_no_discordant_pairs(self):
+        """Same scores for both models → all concordant → global tie, 0 slices."""
+        n = 90
+        scores = [0.3 if i < 30 else 0.9 for i in range(n)]  # first 30 fail for both
+
+        embeddings = _make_clustered_embeddings(3, 30)
+        embedder = MagicMock()
+        embedder.embed_queries = MagicMock(return_value=embeddings)
+
+        analyzer = _make_analyzer(embedder)
+        report = analyzer.compare_models(
+            [f"p-{i}" for i in range(n)],
+            [f"ra-{i}" for i in range(n)],
+            [f"rb-{i}" for i in range(n)],
+            scores_a=scores, scores_b=scores,  # identical → all concordant
+        )
+
+        assert report.global_winner == "tie"
+        assert report.global_p_value == pytest.approx(1.0)
+        assert len(report.slices) == 0
+
+    def test_compare_embed_called_once(self):
+        """Embeddings are computed once (shared) regardless of scoring mode."""
+        analyzer, prompts, ra, rb, sa, sb = self._make_comparison_analyzer(
+            a_better_clusters=[0], b_better_clusters=[1]
+        )
+        analyzer.compare_models(prompts, ra, rb, scores_a=sa, scores_b=sb)
+
+        # embed_queries must be called exactly once (prompts only, not responses)
+        assert analyzer._embedder.embed_queries.call_count == 1
+        assert analyzer._embedder.embed_queries.call_args.args == (prompts,)

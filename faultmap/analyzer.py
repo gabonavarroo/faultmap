@@ -11,12 +11,14 @@ from .labeling import label_clusters
 from .llm import AsyncLLMClient
 from .models import (
     AnalysisReport,
+    ComparisonReport,
     CoverageGap,
     CoverageReport,
     FailureSlice,
     ScoringResult,
+    SliceComparison,
 )
-from .utils import run_sync, validate_inputs
+from .utils import run_sync, validate_comparison_inputs, validate_inputs
 
 logger = logging.getLogger(__name__)
 
@@ -551,6 +553,337 @@ class SliceAnalyzer:
             distance_threshold=used_threshold,
             embedding_model=self.embedding_model,
             metadata=coverage_metadata,
+        )
+
+        logger.info(report.summary())
+        return report
+
+    # ── compare_models() ───────────────────────────────────
+
+    def compare_models(
+        self,
+        prompts: list[str],
+        responses_a: list[str],
+        responses_b: list[str],
+        *,
+        scores_a: list[float] | None = None,
+        scores_b: list[float] | None = None,
+        references: list[str] | None = None,
+        model_a_name: str = "Model A",
+        model_b_name: str = "Model B",
+    ) -> ComparisonReport:
+        """Compare two models on the same prompt set using McNemar's test.
+
+        Embeds prompts once (shared between both models), clusters them, and runs
+        per-slice McNemar's test to find semantic regions where one model is
+        statistically better. Applies Benjamini-Hochberg FDR correction across slices
+        and names significant slices via LLM.
+
+        Scoring mode is auto-detected from arguments — identical to :meth:`analyze`:
+
+        - **Mode 1** (``scores_a`` + ``scores_b`` provided): use pre-computed scores.
+          Both must be provided or both must be ``None``; asymmetric raises
+          :class:`~faultmap.exceptions.ConfigurationError`.
+        - **Mode 2** (``references`` provided, no scores): score each model's responses
+          against shared references via cosine similarity (``ReferenceScorer``).
+        - **Mode 3** (neither): autonomous scoring via semantic entropy and
+          self-consistency. Runs ``EntropyScorer`` independently on each model —
+          **2× the API calls** of a single :meth:`analyze` call.
+        - Both ``scores`` and ``references`` provided: Mode 1 wins with a
+          ``UserWarning``.
+
+        Args:
+            prompts: Shared input prompts — identical for both models. Must be
+                non-empty and equal in length to ``responses_a`` and ``responses_b``.
+            responses_a: Responses from Model A, one per prompt.
+            responses_b: Responses from Model B, one per prompt.
+            scores_a: Mode 1. Pre-computed quality scores for Model A in ``[0, 1]``.
+                Must have the same length as ``prompts``. Required when ``scores_b``
+                is provided.
+            scores_b: Mode 1. Pre-computed quality scores for Model B in ``[0, 1]``.
+                Must have the same length as ``prompts``. Required when ``scores_a``
+                is provided.
+            references: Mode 2. Ground-truth reference answers shared by both models.
+                Must have the same length as ``prompts``.
+            model_a_name: Display name for Model A used in the report.
+                Default ``"Model A"``.
+            model_b_name: Display name for Model B used in the report.
+                Default ``"Model B"``.
+
+        Returns:
+            :class:`ComparisonReport` with ``slices`` sorted by adjusted p-value
+            ascending (most significant first). ``print(comparison)`` produces
+            formatted output. ``comparison.to_dict()`` returns a JSON-serializable dict.
+
+        Raises:
+            ConfigurationError: If inputs are empty, length-mismatched, or scores are
+                provided asymmetrically (``scores_a`` without ``scores_b`` or vice versa).
+        """
+        return run_sync(
+            self._compare_models_async(
+                prompts, responses_a, responses_b,
+                scores_a=scores_a, scores_b=scores_b,
+                references=references,
+                model_a_name=model_a_name, model_b_name=model_b_name,
+            )
+        )
+
+    async def _compare_models_async(
+        self,
+        prompts: list[str],
+        responses_a: list[str],
+        responses_b: list[str],
+        *,
+        scores_a: list[float] | None,
+        scores_b: list[float] | None,
+        references: list[str] | None,
+        model_a_name: str,
+        model_b_name: str,
+    ) -> ComparisonReport:
+        """
+        14-step model comparison pipeline:
+
+         1. VALIDATE       validate_comparison_inputs()
+         2. MODE DETECT    scores_a+b → Mode 1 | references → Mode 2 | neither → Mode 3
+         3. SCORE A        scorer_a.score(prompts, responses_a) → ScoringResult
+         4. SCORE B        scorer_b.score(prompts, responses_b) → ScoringResult
+         5. BINARIZE       failures_a/b = score_array < failure_threshold
+         6. GLOBAL TEST    test_mcnemar(global b, global c) on all prompts
+         7. EMBED          embedder.embed_queries(prompts) [once, shared]
+         8. CLUSTER        cluster_embeddings() → labels (N,)
+         9. PER-SLICE TEST test_mcnemar per cluster
+        10. BH CORRECT     benjamini_hochberg_comparison()
+        11. FILTER         keep adjusted_p < significance_level
+        12. NAME           label_clusters() for significant slices
+        13. ASSEMBLE       SliceComparison objects
+        14. RETURN         ComparisonReport
+        """
+        from .comparison import benjamini_hochberg_comparison, test_mcnemar
+        from .scoring import EntropyScorer, PrecomputedScorer, ReferenceScorer
+        from .slicing import cluster_embeddings, get_representative_prompts
+
+        # 1. Validate
+        validate_comparison_inputs(
+            prompts, responses_a, responses_b, scores_a, scores_b, references
+        )
+
+        # 2. Mode detection
+        if scores_a is not None and references is not None:
+            warnings.warn(
+                "Both scores and references provided. Using scores (Mode 1).",
+                UserWarning, stacklevel=3,
+            )
+            references = None
+
+        if scores_a is not None:
+            scoring_mode = "precomputed"
+            scorer_a = PrecomputedScorer(scores_a)
+            scorer_b = PrecomputedScorer(scores_b)  # type: ignore[arg-type]
+        elif references is not None:
+            scoring_mode = "reference"
+            scorer_a = ReferenceScorer(self._embedder, references)
+            scorer_b = ReferenceScorer(self._embedder, references)
+        else:
+            scoring_mode = "entropy"
+            scorer_a = EntropyScorer(
+                client=self._llm_client, embedder=self._embedder,
+                n_samples=self.n_samples, temperature=self.temperature,
+                consistency_threshold=self.consistency_threshold,
+            )
+            scorer_b = EntropyScorer(
+                client=self._llm_client, embedder=self._embedder,
+                n_samples=self.n_samples, temperature=self.temperature,
+                consistency_threshold=self.consistency_threshold,
+            )
+
+        # 3. Score A
+        logger.info(f"Scoring Model A ({scoring_mode})...")
+        scoring_result_a: ScoringResult = await scorer_a.score(prompts, responses_a)
+
+        # 4. Score B
+        logger.info(f"Scoring Model B ({scoring_mode})...")
+        scoring_result_b: ScoringResult = await scorer_b.score(prompts, responses_b)
+
+        # 5. Binarize
+        score_array_a = np.array(scoring_result_a.scores)
+        score_array_b = np.array(scoring_result_b.scores)
+        failures_a = score_array_a < self.failure_threshold
+        failures_b = score_array_b < self.failure_threshold
+
+        total_prompts = len(prompts)
+        failure_rate_a = float(np.mean(failures_a))
+        failure_rate_b = float(np.mean(failures_b))
+
+        logger.info(
+            f"Failure rates: A={failure_rate_a:.1%}, B={failure_rate_b:.1%} "
+            f"at threshold={self.failure_threshold}"
+        )
+
+        # 6. Global McNemar test (single test across all prompts, no BH correction)
+        # b = A passes AND B fails ("A wins"); c = A fails AND B passes ("B wins")
+        b_global = int(np.sum(~failures_a & failures_b))
+        c_global = int(np.sum(failures_a & ~failures_b))
+
+        global_result = test_mcnemar(b_global, c_global, cluster_id=-1, size=total_prompts)
+        global_winner = (
+            global_result.winner
+            if global_result.p_value < self.significance_level
+            else "tie"
+        )
+
+        # 7. Embed prompts (once, shared between both models)
+        logger.info("Embedding prompts...")
+        prompt_embeddings = self._embedder.embed_queries(prompts)
+
+        # 8. Cluster
+        logger.info(f"Clustering ({self.clustering_method})...")
+        labels = cluster_embeddings(
+            prompt_embeddings, method=self.clustering_method,
+            min_cluster_size=self.min_slice_size,
+        )
+
+        unique_labels = sorted(set(labels))
+        if -1 in unique_labels:
+            unique_labels.remove(-1)
+
+        # 9. Per-slice McNemar test
+        logger.info(f"Testing {len(unique_labels)} clusters...")
+        slice_results = []
+        for cid in unique_labels:
+            mask = labels == cid
+            b_slice = int(np.sum(~failures_a[mask] & failures_b[mask]))
+            c_slice = int(np.sum(failures_a[mask] & ~failures_b[mask]))
+            result = test_mcnemar(
+                b_slice, c_slice, cluster_id=cid, size=int(np.sum(mask))
+            )
+            slice_results.append(result)
+
+        # 10. BH correction
+        corrected = benjamini_hochberg_comparison(
+            slice_results, alpha=self.significance_level
+        )
+
+        # 11. Filter significant slices
+        significant = [
+            r for r in corrected
+            if r.adjusted_p_value < self.significance_level
+        ]
+        logger.info(
+            f"{len(significant)}/{len(corrected)} slices significant "
+            f"at alpha={self.significance_level}"
+        )
+
+        if not significant:
+            return ComparisonReport(
+                slices=[],
+                total_prompts=total_prompts,
+                model_a_name=model_a_name,
+                model_b_name=model_b_name,
+                failure_rate_a=failure_rate_a,
+                failure_rate_b=failure_rate_b,
+                global_p_value=global_result.p_value,
+                global_test_used=global_result.test_used,
+                global_winner=global_winner,
+                global_advantage_rate=global_result.advantage_rate,
+                significance_level=self.significance_level,
+                failure_threshold=self.failure_threshold,
+                scoring_mode=scoring_mode,
+                num_clusters_tested=len(corrected),
+                num_significant=0,
+                clustering_method=self.clustering_method,
+                embedding_model=self.embedding_model,
+            )
+
+        # 12. Name significant slices
+        clusters_texts = []
+        clusters_all_indices = []
+        for r in significant:
+            rep_prompts, _ = get_representative_prompts(
+                prompt_embeddings, labels, r.cluster_id, prompts, top_k=10
+            )
+            clusters_texts.append(rep_prompts)
+            all_idx = np.where(labels == r.cluster_id)[0].tolist()
+            clusters_all_indices.append(all_idx)
+
+        logger.info(f"Naming {len(significant)} comparison slices...")
+        cluster_labels = await label_clusters(
+            self._llm_client, clusters_texts, context="model comparison slice"
+        )
+
+        # 13. Assemble SliceComparison objects
+        slices: list[SliceComparison] = []
+        for r, label, rep_texts, all_idx in zip(
+            significant, cluster_labels, clusters_texts, clusters_all_indices
+        ):
+            cluster_mask = labels == r.cluster_id
+
+            fr_a = float(np.mean(failures_a[cluster_mask]))
+            fr_b = float(np.mean(failures_b[cluster_mask]))
+            concordant_pass = int(
+                np.sum(~failures_a[cluster_mask] & ~failures_b[cluster_mask])
+            )
+            concordant_fail = int(
+                np.sum(failures_a[cluster_mask] & failures_b[cluster_mask])
+            )
+
+            # All items in `significant` already have adj_p < significance_level;
+            # winner is directional (based on advantage_rate) from test_mcnemar.
+            winner = r.winner
+
+            # Top-5 discordant examples (prompts where the two models disagree)
+            examples = []
+            for idx in all_idx:
+                if len(examples) >= 5:
+                    break
+                if bool(failures_a[idx]) != bool(failures_b[idx]):
+                    examples.append({
+                        "prompt": prompts[idx],
+                        "response_a": responses_a[idx],
+                        "response_b": responses_b[idx],
+                        "score_a": float(score_array_a[idx]),
+                        "score_b": float(score_array_b[idx]),
+                    })
+
+            slices.append(SliceComparison(
+                name=label.name,
+                description=label.description,
+                size=len(all_idx),
+                failure_rate_a=fr_a,
+                failure_rate_b=fr_b,
+                failure_rate_diff=fr_a - fr_b,
+                concordant_pass=concordant_pass,
+                concordant_fail=concordant_fail,
+                discordant_a_wins=r.b_count,
+                discordant_b_wins=r.c_count,
+                advantage_rate=r.advantage_rate,
+                p_value=r.p_value,
+                adjusted_p_value=r.adjusted_p_value,
+                test_used=r.test_used,
+                winner=winner,
+                sample_indices=all_idx,
+                examples=examples,
+                representative_prompts=rep_texts[:5],
+                cluster_id=r.cluster_id,
+            ))
+
+        report = ComparisonReport(
+            slices=slices,
+            total_prompts=total_prompts,
+            model_a_name=model_a_name,
+            model_b_name=model_b_name,
+            failure_rate_a=failure_rate_a,
+            failure_rate_b=failure_rate_b,
+            global_p_value=global_result.p_value,
+            global_test_used=global_result.test_used,
+            global_winner=global_winner,
+            global_advantage_rate=global_result.advantage_rate,
+            significance_level=self.significance_level,
+            failure_threshold=self.failure_threshold,
+            scoring_mode=scoring_mode,
+            num_clusters_tested=len(corrected),
+            num_significant=len(slices),
+            clustering_method=self.clustering_method,
+            embedding_model=self.embedding_model,
         )
 
         logger.info(report.summary())

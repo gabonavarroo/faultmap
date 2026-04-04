@@ -11,13 +11,15 @@ from .exceptions import (
 )
 from .models import (
     AnalysisReport,
+    ComparisonReport,
     CoverageGap,
     CoverageReport,
     FailureSlice,
     ScoringResult,
+    SliceComparison,
 )
 
-__version__ = "0.3.0"
+__version__ = "0.4.0"
 
 __all__ = [
     "SliceAnalyzer",
@@ -26,6 +28,8 @@ __all__ = [
     "CoverageReport",
     "CoverageGap",
     "ScoringResult",
+    "ComparisonReport",
+    "SliceComparison",
     "FaultmapError",
     "EmbeddingError",
     "ScoringError",
