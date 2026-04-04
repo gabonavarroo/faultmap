@@ -7,7 +7,7 @@ This project adheres to [Semantic Versioning](https://semver.org/).
 
 ---
 
-## [0.4.0] — 2026-04-03
+## [0.4.1] — 2026-04-03
 Patch CI Integration tests
 
 ## [0.4.0] — 2026-04-03
