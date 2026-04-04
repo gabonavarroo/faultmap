@@ -24,6 +24,18 @@ Aggregate metrics hide critical patterns. A model can score well overall while c
 
 ---
 
+## See It In Action
+
+<!-- Replace the line below with your recorded GIF once you have one:
+     ![faultmap 3D embedding visualization](docs/assets/visualization_demo.gif) -->
+> **[▶ Interactive visualization demo →](notebooks/visualization_demo.ipynb)**
+
+Each **red cluster** is a _Failure Slice_ — a group of semantically similar prompts where your LLM fails disproportionately often. UMAP reduces 1 536-D prompt embeddings to 3D so you can see exactly where reliability breaks down, then faultmap runs statistical hypothesis testing to tell you which clusters are significant and by how much.
+
+[![Open visualization notebook in Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/gabonavarroo/faultmap/blob/main/notebooks/visualization_demo.ipynb)
+
+---
+
 ## How It Works
 
 ```
@@ -60,13 +72,15 @@ pip install faultmap[all]           # Everything
 
 ---
 
-## Tutorial
+## Notebooks
 
-An interactive Jupyter notebook walks through all four usage modes with a **mock path** (no API key needed) and equivalent real API code:
+| Notebook | Description |
+|----------|-------------|
+| [`notebooks/tutorial.ipynb`](notebooks/tutorial.ipynb) | All four usage modes with a mock path (no API key needed) |
+| [`notebooks/visualization_demo.ipynb`](notebooks/visualization_demo.ipynb) | Interactive 3D UMAP scatter of failure slices — no API key needed |
 
-[![Open in Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/gabonavarroo/faultmap/blob/main/notebooks/tutorial.ipynb)
-
-See [`notebooks/tutorial.ipynb`](notebooks/tutorial.ipynb).
+[![Open tutorial in Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/gabonavarroo/faultmap/blob/main/notebooks/tutorial.ipynb)
+[![Open visualization demo in Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/gabonavarroo/faultmap/blob/main/notebooks/visualization_demo.ipynb)
 
 ---
 
