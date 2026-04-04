@@ -51,6 +51,10 @@ def _format_analysis_plain(report: AnalysisReport) -> str:
             )
             lines.append(f"  Effect size:    {s.effect_size:.1f}x")
             lines.append(f"  Adj. p-value:   {s.adjusted_p_value:.6f} ({s.test_used})")
+            if s.root_cause:
+                lines.append(f"  Root Cause:     {s.root_cause}")
+            if s.suggested_remediation:
+                lines.append(f"  Suggested Fix:  {s.suggested_remediation}")
             lines.append("  Examples:")
             for prompt in s.representative_prompts[:5]:
                 truncated = prompt[:120] + ("..." if len(prompt) > 120 else "")
@@ -104,6 +108,10 @@ def _format_analysis_rich(report: AnalysisReport) -> str:
         for i, s in enumerate(report.slices, 1):
             console.print(f"\n[bold]Slice {i}: {s.name}[/bold]")
             console.print(f"  {s.description}")
+            if s.root_cause:
+                console.print(f"  Root Cause: {s.root_cause}", style="yellow")
+            if s.suggested_remediation:
+                console.print(f"  Suggested Fix: {s.suggested_remediation}", style="green")
             console.print("  Examples:")
             for p in s.representative_prompts[:3]:
                 truncated = p[:100] + ("..." if len(p) > 100 else "")

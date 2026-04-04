@@ -24,6 +24,17 @@ Aggregate metrics hide critical patterns. A model can score well overall while c
 
 ---
 
+## See It In Action
+
+![faultmap 3D embedding visualization](docs/assets/faultmap_demo.gif)
+> **[▶ Interactive visualization demo →](notebooks/visualization_demo.ipynb)**
+
+Each **red cluster** is a _Failure Slice_ — a group of semantically similar prompts where your LLM fails disproportionately often. UMAP reduces 1 536-D prompt embeddings to 3D so you can see exactly where reliability breaks down, then faultmap runs statistical hypothesis testing to tell you which clusters are significant and by how much.
+
+[![Open visualization notebook in Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/gabonavarroo/faultmap/blob/main/notebooks/visualization_demo.ipynb)
+
+---
+
 ## How It Works
 
 ```
@@ -60,13 +71,15 @@ pip install faultmap[all]           # Everything
 
 ---
 
-## Tutorial
+## Notebooks
 
-An interactive Jupyter notebook walks through all four usage modes with a **mock path** (no API key needed) and equivalent real API code:
+| Notebook | Description |
+|----------|-------------|
+| [`notebooks/tutorial.ipynb`](notebooks/tutorial.ipynb) | All four usage modes with a mock path (no API key needed) |
+| [`notebooks/visualization_demo.ipynb`](notebooks/visualization_demo.ipynb) | Interactive 3D UMAP scatter of failure slices — no API key needed |
 
-[![Open in Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/gabonavarroo/faultmap/blob/main/notebooks/tutorial.ipynb)
-
-See [`notebooks/tutorial.ipynb`](notebooks/tutorial.ipynb).
+[![Open tutorial in Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/gabonavarroo/faultmap/blob/main/notebooks/tutorial.ipynb)
+[![Open visualization demo in Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/gabonavarroo/faultmap/blob/main/notebooks/visualization_demo.ipynb)
 
 ---
 
@@ -165,6 +178,10 @@ for s in report.slices:
     print(s.effect_size)      # 4.2   (how many times worse than baseline)
     print(s.adjusted_p_value) # 0.0003
     print(s.test_used)        # "chi2"
+
+    # Actionable insights (why it fails + how to fix it)
+    print(s.root_cause)             # "Model lacks context for regulatory terminology..."
+    print(s.suggested_remediation)  # "Add: 'You are a compliance expert...'"
 
     # Recover the original data
     print(s.sample_indices)   # [12, 45, 67, ...]  — indices into your prompts list

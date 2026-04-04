@@ -51,6 +51,10 @@ class FailureSlice:
         representative_prompts: Up to 5 prompts closest to the cluster centroid,
             giving a quick intuition of what this slice is about.
         cluster_id: Internal HDBSCAN/agglomerative cluster label. Used for tracing.
+        root_cause: LLM-generated analysis of why the model fails on this input type.
+            Empty string if the LLM did not return a root cause (e.g. older responses).
+        suggested_remediation: LLM-generated concrete system-prompt addition or
+            modification that would address this failure pattern. Empty string if absent.
     """
     name: str                          # LLM-generated name ("Legal compliance questions")
     description: str                   # LLM-generated 1-sentence explanation
@@ -65,6 +69,8 @@ class FailureSlice:
     examples: list[dict]               # Top-5 example dicts with prompt/response/score
     representative_prompts: list[str]  # Top-5 prompts closest to cluster centroid
     cluster_id: int                    # Internal cluster label
+    root_cause: str = ""               # LLM-generated root cause analysis
+    suggested_remediation: str = ""    # LLM-generated suggested system prompt fix
 
 
 @dataclass(frozen=True)

@@ -52,6 +52,8 @@ def _make_failure_slice():
         examples=[{"prompt": "p", "response": "r", "score": 0.1}],
         representative_prompts=["How do I comply with regulation X?"],
         cluster_id=0,
+        root_cause="Model lacks legal domain training data",
+        suggested_remediation="Add legal compliance context to system prompt",
     )
 
 
@@ -98,6 +100,12 @@ class TestFormatAnalysisReportRich:
         assert "Legal Questions" in text
         assert "80.0%" in text
         assert "5.3x" in text
+
+    def test_with_slices_shows_insights(self):
+        report = _make_analysis_report(slices=[_make_failure_slice()])
+        text = format_analysis_report(report)
+        assert "Model lacks legal domain training data" in text
+        assert "Add legal compliance context to system prompt" in text
 
     def test_returns_nonempty_string(self):
         report = _make_analysis_report()
@@ -164,10 +172,35 @@ class TestFormatAnalysisPlain:
         assert "0.005000" in text   # adjusted_p_value
         assert "chi2" in text
 
+    def test_with_slices_shows_insights(self):
+        report = _make_analysis_report(slices=[_make_failure_slice()])
+        text = _format_analysis_plain(report)
+        assert "Model lacks legal domain training data" in text
+        assert "Add legal compliance context to system prompt" in text
+        assert "Root Cause:" in text
+        assert "Suggested Fix:" in text
+
     def test_with_slices_shows_examples(self):
         report = _make_analysis_report(slices=[_make_failure_slice()])
         text = _format_analysis_plain(report)
         assert "How do I comply with regulation X?" in text
+
+    def test_no_insights_when_empty(self):
+        """Root Cause / Suggested Fix lines are omitted when fields are empty strings."""
+        s = FailureSlice(
+            name="Simple", description="Simple desc",
+            size=5, failure_rate=0.8, baseline_rate=0.1,
+            effect_size=8.0, p_value=0.01, adjusted_p_value=0.02,
+            test_used="chi2", sample_indices=[0],
+            examples=[],
+            representative_prompts=["A prompt"],
+            cluster_id=0,
+            # root_cause and suggested_remediation default to ""
+        )
+        report = _make_analysis_report(slices=[s])
+        text = _format_analysis_plain(report)
+        assert "Root Cause:" not in text
+        assert "Suggested Fix:" not in text
 
     def test_prompt_truncated_at_120_chars(self):
         long_prompt = "A" * 150
