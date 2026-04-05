@@ -7,6 +7,16 @@ This project adheres to [Semantic Versioning](https://semver.org/).
 
 ---
 
+## [0.5.0] — 2026-05-03
+
+**Actionable Advisor**
+- Implemented and actionable advisor. Now faultmap can report not only where the model fails, but also why that pattern may be happening and how the system prompt could be improved. These fields are wired through labeling, models, analysis output, reporting, README examples, and test coverage, while preserving backward compatibility with older two-field label responses.
+
+**Visualization**
+- Added a Visualization notebook, so that anyone can use it to visualize the embeddings and the way they cluster.
+- Implemented a Visualization draft to the README.md to add a visual layer to the documentation.
+
+
 ## [0.4.1] — 2026-04-03
 Patch CI Integration tests
 
